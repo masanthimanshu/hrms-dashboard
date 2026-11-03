@@ -1,32 +1,76 @@
 import axios from "axios";
-import type {
-  Store,
-  User,
-  AttendanceRecord,
-  BackendHealthState,
-  AuthUser,
-  PresignedUploadResponse,
-} from "../types";
+
+export interface Store {
+  _id: string;
+  name: string;
+  address: string;
+  latitude: string;
+  longitude: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface User {
+  _id: string;
+  name: string;
+  email: string;
+  storeId: string;
+  isValid: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AttendanceRecord {
+  _id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  storeId?: string;
+  storeName?: string;
+  latitude: string;
+  longitude: string;
+  distance: string | number;
+  imageUrl: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BackendHealthState {
+  rootHealth: boolean | null;
+  storeHealth: boolean | null;
+  authHealth: boolean | null;
+  adminHealth?: boolean | null;
+  jwtHealth?: boolean | null;
+  lastChecked: string | null;
+  errorMessage?: string;
+}
+
+export interface AuthUser {
+  id?: string;
+  name: string;
+  email: string;
+  role: "ADMIN" | "MANAGER" | "STAFF";
+}
+
 export const BASE_URL = (
   import.meta.env.VITE_APP_BASE_URL ||
   import.meta.env.VITE_BASE_URL ||
   ""
 ).replace(/\/$/, "");
+
 export const CDN_URL = (
   import.meta.env.VITE_APP_CDN_URL ||
   import.meta.env.VITE_CDN_URL ||
   ""
 ).replace(/\/$/, "");
+
 export const ACCOUNT_ID = (
   import.meta.env.VITE_APP_ACCOUNT_ID ||
   import.meta.env.VITE_ACCOUNT_ID ||
   ""
 ).trim();
-export const hasConfiguredAccountId = Boolean(ACCOUNT_ID);
 
-export const DEFAULT_BASE_URL = BASE_URL;
-export const CDN_BASE_URL = CDN_URL;
-export const S3_BASE_URL = CDN_BASE_URL;
+export const hasConfiguredAccountId = Boolean(ACCOUNT_ID);
 
 const KEYS = {
   AUTH: "hrms_auth_token",
@@ -34,39 +78,69 @@ const KEYS = {
   USER: "hrms_auth_user",
 };
 
-export function computeHaversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371e3;
-  const p1 = (lat1 * Math.PI) / 180;
-  const p2 = (lat2 * Math.PI) / 180;
-  const dp = ((lat2 - lat1) * Math.PI) / 180;
-  const dl = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
+// Event bus for notifications
+type Severity = "success" | "info" | "warning" | "error";
+type NotificationListener = (message: string, severity: Severity) => void;
+const listeners: NotificationListener[] = [];
+
+export const notify = (message: string, severity: Severity = "success") => {
+  listeners.forEach((listener) => listener(message, severity));
+};
+
+export const subscribeNotification = (listener: NotificationListener) => {
+  listeners.push(listener);
+  return () => {
+    const idx = listeners.indexOf(listener);
+    if (idx !== -1) listeners.splice(idx, 1);
+  };
+};
 
 export function formatAttendanceImageUrl(imageUrl?: string): string {
   if (!imageUrl || imageUrl.startsWith("data:") || imageUrl.startsWith("blob:"))
     return imageUrl || "";
-  const cdn = CDN_URL || CDN_BASE_URL;
-  if (!cdn) return imageUrl;
   if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
     if (imageUrl.includes(".amazonaws.com/")) {
       const path = imageUrl.split(".amazonaws.com/")[1];
-      if (path) return `${cdn}/${path.replace(/^\/+/, "")}`;
+      if (path && CDN_URL) return `${CDN_URL}/${path.replace(/^\/+/, "")}`;
     }
     return imageUrl;
   }
-  return `${cdn}/${imageUrl.replace(/^\/+/, "")}`;
+  return CDN_URL ? `${CDN_URL}/${imageUrl.replace(/^\/+/, "")}` : imageUrl;
+}
+
+export function enrichAttendance(
+  logs: AttendanceRecord[],
+  users: User[],
+  stores: Store[],
+): AttendanceRecord[] {
+  return logs.map((log) => {
+    const u = users.find((usr) => usr._id === log.userId);
+    const s = u ? stores.find((st) => st._id === u.storeId) : undefined;
+    return {
+      ...log,
+      userName:
+        log.userName ||
+        u?.name ||
+        `Staff (${log.userId?.slice(-6) || "Unknown"})`,
+      userEmail: log.userEmail || u?.email || "",
+      storeId: log.storeId || u?.storeId || "",
+      storeName: log.storeName || s?.name || "Assigned Branch",
+    };
+  });
+}
+
+export function downloadCSV(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 const api = axios.create({
-  baseURL: BASE_URL || "/api/hrms",
+  baseURL: BASE_URL || "/app",
   headers: { Accept: "application/json" },
 });
 
@@ -80,7 +154,7 @@ api.interceptors.request.use((config) => {
     );
   if (refresh)
     config.headers.set("refresh", refresh.replace(/^Bearer\s+/i, "").trim());
-  if (ACCOUNT_ID) config.headers.set("account", ACCOUNT_ID.trim());
+  if (ACCOUNT_ID) config.headers.set("account", ACCOUNT_ID);
   return config;
 });
 
@@ -96,25 +170,22 @@ function getErrorMessage(err: unknown, fallback = "Operation failed"): string {
   if (axios.isAxiosError(err) && err.response?.data) {
     const data = err.response.data;
     if (typeof data === "string") return data;
-    if (Array.isArray(data) && data[0]?.message)
-      return data.map((d: any) => d.message).join("; ");
-    if (data.message)
-      return typeof data.message === "string"
-        ? data.message
-        : JSON.stringify(data.message);
-    if (data.error)
-      return typeof data.error === "string"
-        ? data.error
-        : JSON.stringify(data.error);
+    if (Array.isArray(data) && data[0]?.message) return data[0].message;
+    if (typeof data === "object") {
+      const obj = data as Record<string, unknown>;
+      if (typeof obj.message === "string") return obj.message;
+      if (typeof obj.error === "string") return obj.error;
+    }
   }
   return err instanceof Error ? err.message : fallback;
 }
 
 class HrmsApiService {
   getCurrentUser(): AuthUser | null {
+    const saved = localStorage.getItem(KEYS.USER);
+    if (!saved) return null;
     try {
-      const u = localStorage.getItem(KEYS.USER);
-      return u ? JSON.parse(u) : null;
+      return JSON.parse(saved);
     } catch {
       return null;
     }
@@ -125,10 +196,8 @@ class HrmsApiService {
   }
 
   setSession(auth: string, refresh: string, user: AuthUser) {
-    const cleanAuth = auth.replace(/^Bearer\s+/i, "").trim();
-    const cleanRefresh = refresh.replace(/^Bearer\s+/i, "").trim();
-    localStorage.setItem(KEYS.AUTH, cleanAuth);
-    localStorage.setItem(KEYS.REFRESH, cleanRefresh);
+    localStorage.setItem(KEYS.AUTH, auth);
+    if (refresh) localStorage.setItem(KEYS.REFRESH, refresh);
     localStorage.setItem(KEYS.USER, JSON.stringify(user));
   }
 
@@ -142,39 +211,18 @@ class HrmsApiService {
     userOrEmail: string,
     pass: string,
   ): Promise<{ success: boolean; user?: AuthUser; message?: string }> {
-    const trimmed = userOrEmail.trim();
-    // 1. Try Admin Login
     try {
       const res = await api.post("/account/admin/login", {
-        user: trimmed,
+        user: userOrEmail,
         pass,
       });
-      const token = res.data.authToken || res.data.token;
-      if (token) {
-        const user: AuthUser = res.data.user || {
-          name: res.data.name || "Scoobies Admin",
-          email: trimmed,
-          role: "ADMIN",
-        };
-        this.setSession(token, res.data.refreshToken || "", user);
-        return { success: true, user, message: "Logged in successfully" };
-      }
-    } catch {
-      // Fallback to employee login
-    }
 
-    // 2. Try Employee Login
-    try {
-      const res = await api.post("/account/auth/login", {
-        email: trimmed,
-        password: pass,
-      });
-      const token = res.data.authToken || res.data.token;
-      if (token) {
+      if (res.data?.authToken) {
+        const token = res.data.authToken;
         const user: AuthUser = res.data.user || {
-          name: res.data.name || "Employee",
-          email: trimmed,
-          role: "STAFF",
+          name: "Scoobies Admin",
+          email: userOrEmail,
+          role: "ADMIN",
         };
         this.setSession(token, res.data.refreshToken || "", user);
         return { success: true, user, message: "Logged in successfully" };
@@ -185,41 +233,7 @@ class HrmsApiService {
         message: getErrorMessage(err, "Invalid credentials"),
       };
     }
-
     return { success: false, message: "Invalid credentials" };
-  }
-
-  async verifySession(): Promise<boolean> {
-    if (!this.isAuthenticated()) return false;
-    try {
-      const res = await api.get("/secure/verify");
-      if (res.data?.user) {
-        const user = { ...this.getCurrentUser(), ...res.data.user };
-        localStorage.setItem(KEYS.USER, JSON.stringify(user));
-      }
-      return true;
-    } catch {
-      return this.refreshTokens();
-    }
-  }
-
-  async refreshTokens(): Promise<boolean> {
-    const refresh = localStorage.getItem(KEYS.REFRESH);
-    if (!refresh) return false;
-    try {
-      const res = await api.get("/jwt/refresh");
-      if (res.data?.authToken) {
-        localStorage.setItem(KEYS.AUTH, res.data.authToken);
-        if (res.data.refreshToken)
-          localStorage.setItem(KEYS.REFRESH, res.data.refreshToken);
-        return true;
-      }
-      this.clearSession();
-      return false;
-    } catch {
-      this.clearSession();
-      return false;
-    }
   }
 
   async testHealth(): Promise<BackendHealthState> {
@@ -247,9 +261,7 @@ class HrmsApiService {
   async getStores(): Promise<{ data: Store[]; error?: string }> {
     try {
       const res = await api.get("/account/store/get");
-      return {
-        data: extractArray<Store>(res.data, "stores"),
-      };
+      return { data: extractArray<Store>(res.data, "stores") };
     } catch (err) {
       return {
         data: [],
@@ -287,9 +299,7 @@ class HrmsApiService {
   async getUsers(): Promise<{ data: User[]; error?: string }> {
     try {
       const res = await api.get("/account/auth/users");
-      return {
-        data: extractArray<User>(res.data, "users"),
-      };
+      return { data: extractArray<User>(res.data, "users") };
     } catch (err) {
       return { data: [], error: getErrorMessage(err, "Failed to fetch users") };
     }
@@ -334,9 +344,7 @@ class HrmsApiService {
       const res = await api.get(
         uid ? `/account/admin/attendance/${uid}` : "/account/admin/attendance",
       );
-      return {
-        data: extractArray<AttendanceRecord>(res.data, "attendance"),
-      };
+      return { data: extractArray<AttendanceRecord>(res.data, "attendance") };
     } catch (err) {
       return {
         data: [],
@@ -347,85 +355,6 @@ class HrmsApiService {
 
   getLiveAttendance(uid?: string) {
     return this.getAdminAttendance(uid);
-  }
-
-  async calculateDistance(latitude: string, longitude: string) {
-    try {
-      const res = await api.post("/secure/user/distance", {
-        latitude: String(latitude).trim(),
-        longitude: String(longitude).trim(),
-      });
-      return { distance: res.data.distance };
-    } catch (err) {
-      return { error: getErrorMessage(err, "Distance check failed") };
-    }
-  }
-
-  async requestPresignedUpload(text = "Shift Verification Photo"): Promise<{
-    success: boolean;
-    data?: PresignedUploadResponse;
-    message?: string;
-  }> {
-    try {
-      const res = await api.post("/secure/upload/image", { text });
-      return {
-        success: true,
-        data: { uploadUrl: res.data.uploadUrl, key: res.data.key },
-      };
-    } catch (err) {
-      return {
-        success: false,
-        message: getErrorMessage(err, "Upload request failed"),
-      };
-    }
-  }
-
-  async uploadBinaryToS3(uploadUrl: string, imageBlob: Blob) {
-    try {
-      await axios.put(uploadUrl, imageBlob, {
-        headers: { "Content-Type": "image/webp" },
-      });
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: getErrorMessage(err, "S3 upload failed"),
-      };
-    }
-  }
-
-  async submitAttendance(payload: {
-    latitude: string;
-    longitude: string;
-    imageUrl: string;
-  }) {
-    try {
-      const res = await api.post("/secure/attendance/add", {
-        latitude: String(payload.latitude).trim(),
-        longitude: String(payload.longitude).trim(),
-        imageUrl: payload.imageUrl,
-      });
-      return {
-        success: true,
-        message: res.data?.status || "Attendance recorded",
-      };
-    } catch (err) {
-      return {
-        success: false,
-        message: getErrorMessage(err, "Failed to submit attendance"),
-      };
-    }
-  }
-
-  async getTodayAttendance(): Promise<{ data: AttendanceRecord[] }> {
-    try {
-      const res = await api.get("/secure/attendance/today");
-      return {
-        data: Array.isArray(res.data) ? res.data : res.data?.data || [],
-      };
-    } catch {
-      return { data: [] };
-    }
   }
 }
 

@@ -10,8 +10,14 @@ import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRou
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { VerificationPhotoModal } from "../components/VerificationPhotoModal";
-import type { AttendanceRecord, Store, User } from "../types";
-import { apiService, formatAttendanceImageUrl } from "../services/api";
+import {
+  apiService,
+  formatAttendanceImageUrl,
+  enrichAttendance,
+  type AttendanceRecord,
+  type Store,
+  type User,
+} from "../services/api";
 
 function StatCard({
   title,
@@ -145,28 +151,9 @@ export const OverviewPage: FC = () => {
         apiService.getUsers(),
         apiService.getLiveAttendance(),
       ]);
-      const storeList = storeRes.data || [];
-      const userList = userRes.data || [];
-      const attList = attRes.data || [];
-
-      setStores(storeList);
-      setUsers(userList);
-
-      const enrichedLogs: AttendanceRecord[] = attList.map((log) => {
-        const u = userList.find((usr) => usr._id === log.userId);
-        const s = u ? storeList.find((st) => st._id === u.storeId) : undefined;
-        return {
-          ...log,
-          userName:
-            log.userName ||
-            u?.name ||
-            `Staff (${log.userId?.slice(-6) || "Unknown"})`,
-          userEmail: log.userEmail || u?.email || "",
-          storeId: log.storeId || u?.storeId || "",
-          storeName: log.storeName || s?.name || "Assigned Branch",
-        };
-      });
-      setAttendance(enrichedLogs);
+      setStores(storeRes.data);
+      setUsers(userRes.data);
+      setAttendance(enrichAttendance(attRes.data, userRes.data, storeRes.data));
     } finally {
       setIsLoading(false);
     }
@@ -452,10 +439,10 @@ export const OverviewPage: FC = () => {
                           />
                         )}
                         <Typography
-                          variant="body2"
+                          variant="subtitle2"
                           sx={{
                             fontWeight: 800,
-                            color: isCompliant ? "#15803d" : "#b45309",
+                            color: isCompliant ? "#16a34a" : "#d97706",
                           }}
                         >
                           {log.distance}m
@@ -463,13 +450,9 @@ export const OverviewPage: FC = () => {
                       </Box>
                       <Typography
                         variant="caption"
-                        sx={{
-                          color: isCompliant ? "#16a34a" : "#d97706",
-                          fontWeight: 700,
-                          fontSize: "0.7rem",
-                        }}
+                        sx={{ color: "#94a3b8", fontSize: "0.72rem" }}
                       >
-                        {isCompliant ? "Inside Geofence" : "Out of Bounds"}
+                        {isCompliant ? "Within Geofence" : "Outside Perimeter"}
                       </Typography>
                     </Box>
                   </Box>
@@ -479,26 +462,26 @@ export const OverviewPage: FC = () => {
           )}
         </Paper>
 
-        {/* Store Distribution & Service Info */}
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-          <Paper
-            elevation={0}
+        {/* Workplace Capacity */}
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            borderRadius: 3.5,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
+        >
+          <Box
             sx={{
-              p: 3,
-              borderRadius: 3.5,
-              bgcolor: "#ffffff",
-              border: "1px solid #e2e8f0",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              mb: 2,
             }}
           >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                mb: 1.5,
-              }}
-            >
+            <Box>
               <Typography
                 variant="h6"
                 sx={{
@@ -509,140 +492,101 @@ export const OverviewPage: FC = () => {
               >
                 Workplace Distribution
               </Typography>
+              <Typography variant="caption" sx={{ color: "#64748b" }}>
+                Assigned staff per physical location
+              </Typography>
+            </Box>
+            <Button
+              size="small"
+              endIcon={<ArrowForwardRoundedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => navigate("/stores")}
+              sx={{ color: "#2563eb", fontWeight: 700 }}
+            >
+              View Stores
+            </Button>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+
+          {stores.length === 0 ? (
+            <Box sx={{ py: 6, textAlign: "center" }}>
+              <Typography variant="body2" sx={{ color: "#64748b", mb: 1 }}>
+                No workplace branches configured.
+              </Typography>
               <Button
+                variant="outlined"
                 size="small"
                 onClick={() => navigate("/stores")}
-                sx={{ color: "#2563eb", fontWeight: 700 }}
               >
-                Manage
+                Configure First Branch
               </Button>
             </Box>
-            <Divider sx={{ mb: 2 }} />
-
-            {stores.length === 0 ? (
-              <Typography
-                variant="body2"
-                sx={{ color: "#64748b", py: 2, textAlign: "center" }}
-              >
-                No workplace locations registered.
-              </Typography>
-            ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {stores.map((store) => {
-                  const count = storeStaffMap[store._id] || 0;
-                  const pct =
-                    users.length > 0
-                      ? Math.round((count / users.length) * 100)
-                      : 0;
-                  return (
-                    <Box key={store._id}>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              {stores.slice(0, 5).map((store) => {
+                const count = storeStaffMap[store._id] || 0;
+                return (
+                  <Box
+                    key={store._id}
+                    onClick={() => navigate("/stores")}
+                    sx={{
+                      p: 1.75,
+                      borderRadius: 2.5,
+                      border: "1px solid #f1f5f9",
+                      bgcolor: "#fbfcfe",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      "&:hover": { bgcolor: "#f8fafc", borderColor: "#cbd5e1" },
+                    }}
+                  >
+                    <Box
+                      sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
+                    >
                       <Box
                         sx={{
+                          p: 1,
+                          borderRadius: 2,
+                          bgcolor: "rgba(37, 99, 235, 0.08)",
+                          color: "#2563eb",
                           display: "flex",
-                          justifyContent: "space-between",
-                          mb: 0.75,
                         }}
                       >
+                        <StorefrontRoundedIcon fontSize="small" />
+                      </Box>
+                      <Box>
                         <Typography
-                          variant="body2"
+                          variant="subtitle2"
                           sx={{ fontWeight: 700, color: "#0f172a" }}
                         >
                           {store.name}
                         </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "#64748b", fontWeight: 600 }}
-                        >
-                          {count} staff ({pct}%)
+                        <Typography variant="caption" sx={{ color: "#64748b" }}>
+                          {store.address}
                         </Typography>
                       </Box>
-                      <Box
-                        sx={{
-                          height: 7,
-                          width: "100%",
-                          bgcolor: "#f1f5f9",
-                          borderRadius: 4,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: "100%",
-                            width: `${Math.max(pct, 5)}%`,
-                            bgcolor: "#2563eb",
-                            borderRadius: 4,
-                          }}
-                        />
-                      </Box>
                     </Box>
-                  );
-                })}
-              </Box>
-            )}
-          </Paper>
-
-          {/* Backend Info Card */}
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              background: "linear-gradient(135deg, #090d16 0%, #0f172a 100%)",
-              color: "#ffffff",
-              borderRadius: 3.5,
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              boxShadow: "0 10px 25px -5px rgba(15, 23, 42, 0.35)",
-            }}
-          >
-            <Typography
-              variant="subtitle1"
-              sx={{ fontWeight: 800, mb: 0.75, letterSpacing: "-0.015em" }}
-            >
-              Backend Live Services
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ color: "#94a3b8", mb: 2.25, fontSize: "0.82rem" }}
-            >
-              API gateway connected directly to MongoDB and S3 storage with dual
-              JWT auth.
-            </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <CheckCircleRoundedIcon
-                  sx={{ fontSize: 16, color: "#4ade80" }}
-                />
-                <Typography
-                  variant="caption"
-                  sx={{ color: "#e2e8f0", fontWeight: 600 }}
-                >
-                  Automated Resend Email Password Dispatch
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <CheckCircleRoundedIcon
-                  sx={{ fontSize: 16, color: "#4ade80" }}
-                />
-                <Typography
-                  variant="caption"
-                  sx={{ color: "#e2e8f0", fontWeight: 600 }}
-                >
-                  Haversine Geofencing GPS Verification
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <CheckCircleRoundedIcon
-                  sx={{ fontSize: 16, color: "#4ade80" }}
-                />
-                <Typography
-                  variant="caption"
-                  sx={{ color: "#e2e8f0", fontWeight: 600 }}
-                >
-                  Direct-to-S3 Presigned Media Pipeline
-                </Typography>
-              </Box>
+                    <Box sx={{ textAlign: "right" }}>
+                      <Typography
+                        variant="subtitle2"
+                        sx={{ fontWeight: 800, color: "#0f172a" }}
+                      >
+                        {count} Staff
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "#94a3b8", fontSize: "0.72rem" }}
+                      >
+                        Active allocation
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
             </Box>
-          </Paper>
-        </Box>
+          )}
+        </Paper>
       </Box>
 
       <VerificationPhotoModal

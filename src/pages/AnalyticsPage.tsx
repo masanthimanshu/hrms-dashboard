@@ -5,8 +5,15 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
-import { apiService } from "../services/api";
-import type { AttendanceRecord, Store } from "../types";
+import { apiService, type AttendanceRecord, type Store } from "../services/api";
+
+const paperCardSx = {
+  p: 3,
+  borderRadius: 3.5,
+  bgcolor: "#ffffff",
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+};
 
 export const AnalyticsPage: FC = () => {
   const navigate = useNavigate();
@@ -34,27 +41,20 @@ export const AnalyticsPage: FC = () => {
   const outlierPct = total > 0 ? Math.round((outlier / total) * 100) : 0;
 
   const hourly = [
-    { hour: "7 AM", count: 0 },
-    { hour: "8 AM", count: 0 },
-    { hour: "9 AM", count: 0 },
-    { hour: "10 AM", count: 0 },
-    { hour: "11 AM", count: 0 },
-    { hour: "12 PM", count: 0 },
-    { hour: "1 PM+", count: 0 },
-  ];
-
+    "7 AM",
+    "8 AM",
+    "9 AM",
+    "10 AM",
+    "11 AM",
+    "12 PM",
+    "1 PM+",
+  ].map((hour) => ({ hour, count: 0 }));
   attendance.forEach((rec) => {
     if (!rec.createdAt) return;
     const h = new Date(rec.createdAt).getHours();
-    if (h <= 7) hourly[0].count++;
-    else if (h === 8) hourly[1].count++;
-    else if (h === 9) hourly[2].count++;
-    else if (h === 10) hourly[3].count++;
-    else if (h === 11) hourly[4].count++;
-    else if (h === 12) hourly[5].count++;
-    else hourly[6].count++;
+    const idx = h <= 7 ? 0 : h >= 13 ? 6 : h - 7;
+    hourly[idx].count++;
   });
-
   const maxHour = Math.max(...hourly.map((b) => b.count), 1);
 
   const storeCheckinMap: Record<string, number> = {};
@@ -67,18 +67,30 @@ export const AnalyticsPage: FC = () => {
     1,
   );
 
+  const accuracyBreakdown = [
+    {
+      label: "Strictly On-Site (≤100m)",
+      color: "#16a34a",
+      val: compliant,
+      pct: compliantPct,
+    },
+    {
+      label: "Near Boundary (100–250m)",
+      color: "#d97706",
+      val: borderline,
+      pct: borderlinePct,
+    },
+    {
+      label: "Outside Perimeter (>250m)",
+      color: "#dc2626",
+      val: outlier,
+      pct: outlierPct,
+    },
+  ];
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <Paper
-        elevation={0}
-        sx={{
-          p: 3,
-          borderRadius: 3.5,
-          bgcolor: "#ffffff",
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-        }}
-      >
+      <Paper elevation={0} sx={paperCardSx}>
         <Typography
           variant="h6"
           sx={{
@@ -97,16 +109,7 @@ export const AnalyticsPage: FC = () => {
       </Paper>
 
       {total === 0 ? (
-        <Paper
-          elevation={0}
-          sx={{
-            p: 6,
-            borderRadius: 3.5,
-            textAlign: "center",
-            border: "1px solid #e2e8f0",
-            bgcolor: "#ffffff",
-          }}
-        >
+        <Paper elevation={0} sx={{ ...paperCardSx, p: 6, textAlign: "center" }}>
           <QueryStatsRoundedIcon
             sx={{ fontSize: 48, color: "#94a3b8", mb: 1.5 }}
           />
@@ -131,16 +134,7 @@ export const AnalyticsPage: FC = () => {
             }}
           >
             {/* Accuracy circle */}
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                borderRadius: 3.5,
-                bgcolor: "#ffffff",
-                border: "1px solid #e2e8f0",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-              }}
-            >
+            <Paper elevation={0} sx={paperCardSx}>
               <Box
                 sx={{
                   display: "flex",
@@ -224,122 +218,48 @@ export const AnalyticsPage: FC = () => {
                   mt: 1,
                 }}
               >
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    p: 1,
-                    borderRadius: 2,
-                    bgcolor: "#f8fafc",
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        bgcolor: "#16a34a",
-                        boxShadow: "0 0 6px #16a34a",
-                      }}
-                    />
+                {accuracyBreakdown.map((item) => (
+                  <Box
+                    key={item.label}
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      p: 1,
+                      borderRadius: 2,
+                      bgcolor: "#f8fafc",
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          bgcolor: item.color,
+                          boxShadow: `0 0 6px ${item.color}`,
+                        }}
+                      />
+                      <Typography
+                        variant="body2"
+                        sx={{ color: "#334155", fontWeight: 600 }}
+                      >
+                        {item.label}
+                      </Typography>
+                    </Box>
                     <Typography
                       variant="body2"
-                      sx={{ color: "#334155", fontWeight: 600 }}
+                      sx={{ fontWeight: 800, color: "#0f172a" }}
                     >
-                      Strictly On-Site (≤100m)
+                      {item.val} ({item.pct}%)
                     </Typography>
                   </Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 800, color: "#0f172a" }}
-                  >
-                    {compliant} ({compliantPct}%)
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    p: 1,
-                    borderRadius: 2,
-                    bgcolor: "#f8fafc",
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        bgcolor: "#d97706",
-                        boxShadow: "0 0 6px #d97706",
-                      }}
-                    />
-                    <Typography
-                      variant="body2"
-                      sx={{ color: "#334155", fontWeight: 600 }}
-                    >
-                      Near Boundary (100–250m)
-                    </Typography>
-                  </Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 800, color: "#0f172a" }}
-                  >
-                    {borderline} ({borderlinePct}%)
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    p: 1,
-                    borderRadius: 2,
-                    bgcolor: "#f8fafc",
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        bgcolor: "#dc2626",
-                        boxShadow: "0 0 6px #dc2626",
-                      }}
-                    />
-                    <Typography
-                      variant="body2"
-                      sx={{ color: "#334155", fontWeight: 600 }}
-                    >
-                      Outside Perimeter (&gt;250m)
-                    </Typography>
-                  </Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 800, color: "#0f172a" }}
-                  >
-                    {outlier} ({outlierPct}%)
-                  </Typography>
-                </Box>
+                ))}
               </Box>
             </Paper>
 
-            {/* Hourly */}
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                borderRadius: 3.5,
-                bgcolor: "#ffffff",
-                border: "1px solid #e2e8f0",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-              }}
-            >
+            {/* Hourly volume chart */}
+            <Paper elevation={0} sx={paperCardSx}>
               <Box
                 sx={{
                   display: "flex",
@@ -424,17 +344,8 @@ export const AnalyticsPage: FC = () => {
             </Paper>
           </Box>
 
-          {/* Branch Activity */}
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              borderRadius: 3.5,
-              bgcolor: "#ffffff",
-              border: "1px solid #e2e8f0",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-            }}
-          >
+          {/* Branch Activity Turnout */}
+          <Paper elevation={0} sx={paperCardSx}>
             <Box
               sx={{
                 display: "flex",

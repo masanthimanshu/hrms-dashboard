@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC, type FormEvent } from "react";
+import { useState, useEffect, type FC, type SubmitEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -37,10 +37,20 @@ import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import PhotoCameraRoundedIcon from "@mui/icons-material/PhotoCameraRounded";
-import type { User, Store, AttendanceRecord } from "../types";
 import { VerificationPhotoModal } from "../components/VerificationPhotoModal";
-import { apiService, hasConfiguredAccountId } from "../services/api";
-import { notify } from "../services/notify";
+import {
+  apiService,
+  hasConfiguredAccountId,
+  notify,
+  downloadCSV,
+  type User,
+  type Store,
+  type AttendanceRecord,
+} from "../services/api";
+
+const inputSx = {
+  "& .MuiOutlinedInput-root": { bgcolor: "#f8fafc", borderRadius: 2 },
+};
 
 export const EmployeesPage: FC = () => {
   const navigate = useNavigate();
@@ -48,25 +58,6 @@ export const EmployeesPage: FC = () => {
   const [stores, setStores] = useState<Store[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
-  const hasAccountId = hasConfiguredAccountId;
-
-  const loadData = async () => {
-    try {
-      const [userRes, storeRes] = await Promise.all([
-        apiService.getUsers(),
-        apiService.getStores(),
-      ]);
-      setUsers(userRes.data || []);
-      setUsersError(userRes.error || null);
-      setStores(storeRes.data || []);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("ALL");
@@ -82,9 +73,29 @@ export const EmployeesPage: FC = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [newStoreId, setNewStoreId] = useState(stores[0]?._id || "");
+  const [newStoreId, setNewStoreId] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const loadData = async () => {
+    try {
+      const [uRes, sRes] = await Promise.all([
+        apiService.getUsers(),
+        apiService.getStores(),
+      ]);
+      setUsers(uRes.data || []);
+      setUsersError(uRes.error || null);
+      setStores(sRes.data || []);
+      if (!newStoreId && sRes.data?.[0]?._id) setNewStoreId(sRes.data[0]._id);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -94,13 +105,14 @@ export const EmployeesPage: FC = () => {
       .then((res) => {
         if (!active) return;
         const s = stores.find((st) => st._id === selectedUser.storeId);
-        const enriched = (res.data || []).map((log) => ({
-          ...log,
-          userName: selectedUser.name,
-          userEmail: selectedUser.email,
-          storeName: s?.name || log.storeName || "Assigned Branch",
-        }));
-        setUserAttendance(enriched);
+        setUserAttendance(
+          (res.data || []).map((log) => ({
+            ...log,
+            userName: selectedUser.name,
+            userEmail: selectedUser.email,
+            storeName: s?.name || log.storeName || "Assigned Branch",
+          })),
+        );
       })
       .catch(() => {
         if (active) setUserAttendance([]);
@@ -134,10 +146,8 @@ export const EmployeesPage: FC = () => {
       if (res.success) {
         notify("Account status updated", "success");
         await loadData();
-        if (selectedUser && selectedUser._id === uid) {
-          setSelectedUser((prev) =>
-            prev ? { ...prev, isValid: !prev.isValid } : null,
-          );
+        if (selectedUser?._id === uid) {
+          setSelectedUser((p) => (p ? { ...p, isValid: !p.isValid } : null));
         }
       } else {
         notify(res.message || "Failed to update status", "error");
@@ -147,9 +157,10 @@ export const EmployeesPage: FC = () => {
     }
   };
 
-  const handleCreateSubmit = async (e: FormEvent) => {
+  const handleCreateSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newEmail.trim() || !newStoreId) {
+    const sid = newStoreId || stores[0]?._id;
+    if (!newName.trim() || !newEmail.trim() || !sid) {
       setFormError("All fields are required");
       return;
     }
@@ -158,7 +169,7 @@ export const EmployeesPage: FC = () => {
     const res = await apiService.createUser({
       name: newName.trim(),
       email: newEmail.trim(),
-      storeId: newStoreId,
+      storeId: sid,
     });
     setFormSubmitting(false);
     if (res.success) {
@@ -187,10 +198,7 @@ export const EmployeesPage: FC = () => {
         ].join(","),
       ),
     ].join("\n");
-    const link = document.createElement("a");
-    link.href = encodeURI("data:text/csv;charset=utf-8," + rows);
-    link.download = `staff_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
+    downloadCSV(`staff_${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
 
   return (
@@ -242,14 +250,7 @@ export const EmployeesPage: FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             size="small"
-            sx={{
-              minWidth: 240,
-              flex: 1,
-              "& .MuiOutlinedInput-root": {
-                bgcolor: "#f8fafc",
-                borderRadius: 2,
-              },
-            }}
+            sx={{ minWidth: 240, flex: 1, ...inputSx }}
             slotProps={{
               input: {
                 startAdornment: (
@@ -263,16 +264,7 @@ export const EmployeesPage: FC = () => {
               },
             }}
           />
-          <FormControl
-            size="small"
-            sx={{
-              minWidth: 160,
-              "& .MuiOutlinedInput-root": {
-                bgcolor: "#f8fafc",
-                borderRadius: 2,
-              },
-            }}
-          >
+          <FormControl size="small" sx={{ minWidth: 160, ...inputSx }}>
             <InputLabel>Location Filter</InputLabel>
             <Select
               value={storeFilter}
@@ -287,16 +279,7 @@ export const EmployeesPage: FC = () => {
               ))}
             </Select>
           </FormControl>
-          <FormControl
-            size="small"
-            sx={{
-              minWidth: 140,
-              "& .MuiOutlinedInput-root": {
-                bgcolor: "#f8fafc",
-                borderRadius: 2,
-              },
-            }}
-          >
+          <FormControl size="small" sx={{ minWidth: 140, ...inputSx }}>
             <InputLabel>Account State</InputLabel>
             <Select
               value={statusFilter}
@@ -368,7 +351,7 @@ export const EmployeesPage: FC = () => {
                       variant="body2"
                       sx={{ color: "#64748b", mb: 1.5 }}
                     >
-                      {!hasAccountId
+                      {!hasConfiguredAccountId
                         ? "Account ID not configured yet."
                         : "No employee records found in live database."}
                     </Typography>
@@ -376,12 +359,12 @@ export const EmployeesPage: FC = () => {
                       variant="contained"
                       size="small"
                       onClick={() =>
-                        hasAccountId
+                        hasConfiguredAccountId
                           ? setCreateModalOpen(true)
                           : navigate("/settings")
                       }
                     >
-                      {hasAccountId
+                      {hasConfiguredAccountId
                         ? "Onboard First Staff Member"
                         : "Configure Settings"}
                     </Button>
@@ -560,59 +543,45 @@ export const EmployeesPage: FC = () => {
                 {formError}
               </Alert>
             )}
-            <Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontWeight: 600,
-                  color: "#334155",
-                  mb: 0.75,
-                  display: "block",
-                }}
-              >
-                Full Name
-              </Typography>
-              <TextField
-                placeholder="e.g. Maya Lin"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                fullWidth
-                required
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2,
-                  },
-                }}
-              />
-            </Box>
-            <Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontWeight: 600,
-                  color: "#334155",
-                  mb: 0.75,
-                  display: "block",
-                }}
-              >
-                Work Email Address
-              </Typography>
-              <TextField
-                placeholder="e.g. maya@scoobies.co.in"
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                fullWidth
-                required
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2,
-                  },
-                }}
-              />
-            </Box>
+            {[
+              {
+                label: "Full Name",
+                val: newName,
+                set: setNewName,
+                ph: "e.g. Maya Lin",
+                type: "text",
+              },
+              {
+                label: "Work Email Address",
+                val: newEmail,
+                set: setNewEmail,
+                ph: "e.g. maya@scoobies.co.in",
+                type: "email",
+              },
+            ].map((f) => (
+              <Box key={f.label}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontWeight: 600,
+                    color: "#334155",
+                    mb: 0.75,
+                    display: "block",
+                  }}
+                >
+                  {f.label}
+                </Typography>
+                <TextField
+                  placeholder={f.ph}
+                  type={f.type}
+                  value={f.val}
+                  onChange={(e) => f.set(e.target.value)}
+                  fullWidth
+                  required
+                  sx={inputSx}
+                />
+              </Box>
+            ))}
             <Box>
               <Typography
                 variant="caption"
@@ -625,18 +594,9 @@ export const EmployeesPage: FC = () => {
               >
                 Assigned Workplace Branch
               </Typography>
-              <FormControl
-                fullWidth
-                required
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2,
-                  },
-                }}
-              >
+              <FormControl fullWidth required sx={inputSx}>
                 <Select
-                  value={newStoreId}
+                  value={newStoreId || stores[0]?._id || ""}
                   onChange={(e) => setNewStoreId(e.target.value)}
                 >
                   {stores.map((s) => (
@@ -715,41 +675,42 @@ export const EmployeesPage: FC = () => {
                 mb: 2.5,
               }}
             >
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography variant="body2" sx={{ color: "#64748b" }}>
-                  Assigned Branch:
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 700, color: "#0f172a" }}
-                >
-                  {getStoreName(selectedUser.storeId)}
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography variant="body2" sx={{ color: "#64748b" }}>
-                  Account State:
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontWeight: 700,
-                    color: selectedUser.isValid ? "#16a34a" : "#d97706",
-                  }}
-                >
-                  {selectedUser.isValid ? "Active & Validated" : "Suspended"}
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography variant="body2" sx={{ color: "#64748b" }}>
-                  Registered:
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {selectedUser.createdAt
+              {[
+                {
+                  label: "Assigned Branch:",
+                  val: getStoreName(selectedUser.storeId),
+                  color: "#0f172a",
+                },
+                {
+                  label: "Account State:",
+                  val: selectedUser.isValid
+                    ? "Active & Validated"
+                    : "Suspended",
+                  color: selectedUser.isValid ? "#16a34a" : "#d97706",
+                },
+                {
+                  label: "Registered:",
+                  val: selectedUser.createdAt
                     ? new Date(selectedUser.createdAt).toLocaleDateString()
-                    : "N/A"}
-                </Typography>
-              </Box>
+                    : "N/A",
+                  color: "#334155",
+                },
+              ].map((row) => (
+                <Box
+                  key={row.label}
+                  sx={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <Typography variant="body2" sx={{ color: "#64748b" }}>
+                    {row.label}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 700, color: row.color }}
+                  >
+                    {row.val}
+                  </Typography>
+                </Box>
+              ))}
             </Box>
 
             <Button

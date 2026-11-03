@@ -15,8 +15,10 @@ import PlaceRoundedIcon from "@mui/icons-material/PlaceRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import type { AttendanceRecord } from "../types";
-import { formatAttendanceImageUrl } from "../services/api";
+import {
+  formatAttendanceImageUrl,
+  type AttendanceRecord,
+} from "../services/api";
 
 interface VerificationPhotoModalProps {
   record: AttendanceRecord | null;
@@ -28,11 +30,34 @@ export const VerificationPhotoModal: FC<VerificationPhotoModalProps> = ({
   onClose,
 }) => {
   const [imgError, setImgError] = useState(false);
-
   if (!record) return null;
 
   const isCompliant = Number(record.distance) <= 100;
   const imgUrl = formatAttendanceImageUrl(record.imageUrl);
+
+  const detailItems = [
+    {
+      icon: (
+        <StorefrontRoundedIcon fontSize="small" sx={{ color: "#64748b" }} />
+      ),
+      val: record.storeName,
+      lbl: "Workplace Branch",
+    },
+    {
+      icon: (
+        <AccessTimeRoundedIcon fontSize="small" sx={{ color: "#64748b" }} />
+      ),
+      val: record.createdAt
+        ? new Date(record.createdAt).toLocaleString()
+        : "N/A",
+      lbl: "Check-in Timestamp",
+    },
+    {
+      icon: <PlaceRoundedIcon fontSize="small" sx={{ color: "#64748b" }} />,
+      val: `${record.latitude}, ${record.longitude}`,
+      lbl: "Captured GPS Coordinates",
+    },
+  ];
 
   return (
     <Dialog
@@ -177,58 +202,25 @@ export const VerificationPhotoModal: FC<VerificationPhotoModalProps> = ({
 
               <Divider />
 
-              <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
-                <StorefrontRoundedIcon
-                  fontSize="small"
-                  sx={{ color: "#64748b" }}
-                />
-                <Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
-                  >
-                    {record.storeName}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b" }}>
-                    Workplace Branch
-                  </Typography>
+              {detailItems.map((item) => (
+                <Box
+                  key={item.lbl}
+                  sx={{ display: "flex", gap: 1.25, alignItems: "center" }}
+                >
+                  {item.icon}
+                  <Box>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 700, color: "#0f172a" }}
+                    >
+                      {item.val}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "#64748b" }}>
+                      {item.lbl}
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-
-              <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
-                <AccessTimeRoundedIcon
-                  fontSize="small"
-                  sx={{ color: "#64748b" }}
-                />
-                <Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
-                  >
-                    {record.createdAt
-                      ? new Date(record.createdAt).toLocaleString()
-                      : "N/A"}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b" }}>
-                    Check-in Timestamp
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
-                <PlaceRoundedIcon fontSize="small" sx={{ color: "#64748b" }} />
-                <Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
-                  >
-                    {record.latitude}, {record.longitude}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b" }}>
-                    Captured GPS Coordinates
-                  </Typography>
-                </Box>
-              </Box>
+              ))}
 
               <Box
                 sx={{

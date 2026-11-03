@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC, type FormEvent } from "react";
+import { useState, useEffect, type FC, type SubmitEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -17,8 +17,23 @@ import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-import { apiService } from "../services/api";
-import { notify } from "../services/notify";
+import { apiService, notify } from "../services/api";
+
+const inputFieldSx = {
+  "& .MuiOutlinedInput-root": {
+    bgcolor: "#f8fafc",
+    borderRadius: 2.25,
+    transition: "all 0.15s ease",
+    "& fieldset": { borderColor: "#e2e8f0" },
+    "&:hover fieldset": { borderColor: "#cbd5e1" },
+    "&.Mui-focused": {
+      bgcolor: "#ffffff",
+      "& fieldset": { borderColor: "#2563eb", borderWidth: 1.5 },
+      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
+    },
+  },
+  "& .MuiInputBase-input": { fontSize: "0.9rem", py: 1.3 },
+};
 
 export const LoginPage: FC = () => {
   const navigate = useNavigate();
@@ -37,7 +52,7 @@ export const LoginPage: FC = () => {
     }
   }, [navigate, location]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
@@ -78,7 +93,6 @@ export const LoginPage: FC = () => {
         backgroundSize: "100% 100%, 100% 100%, 24px 24px",
       }}
     >
-      {/* Ambient background light beam */}
       <Box
         sx={{
           position: "absolute",
@@ -104,16 +118,12 @@ export const LoginPage: FC = () => {
           borderRadius: 4,
           bgcolor: "rgba(255, 255, 255, 0.98)",
           backdropFilter: "blur(20px)",
-          boxShadow: `
-            0 25px 50px -12px rgba(0, 0, 0, 0.45),
-            0 0 0 1px rgba(255, 255, 255, 0.1),
-            0 1px 3px 0 rgba(0, 0, 0, 0.1)
-          `,
+          boxShadow:
+            "0 25px 50px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 1px 3px 0 rgba(0, 0, 0, 0.1)",
           position: "relative",
           zIndex: 1,
         }}
       >
-        {/* Header / Brand */}
         <Box sx={{ textAlign: "center", mb: 3.5 }}>
           <Box
             sx={{
@@ -216,27 +226,7 @@ export const LoginPage: FC = () => {
                 fullWidth
                 required
                 disabled={loading}
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2.25,
-                    transition: "all 0.15s ease",
-                    "& fieldset": { borderColor: "#e2e8f0" },
-                    "&:hover fieldset": { borderColor: "#cbd5e1" },
-                    "&.Mui-focused": {
-                      bgcolor: "#ffffff",
-                      "& fieldset": {
-                        borderColor: "#2563eb",
-                        borderWidth: 1.5,
-                      },
-                      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
-                    },
-                  },
-                  "& .MuiInputBase-input": {
-                    fontSize: "0.9rem",
-                    py: 1.3,
-                  },
-                }}
+                sx={inputFieldSx}
                 slotProps={{
                   input: {
                     startAdornment: (
@@ -273,27 +263,7 @@ export const LoginPage: FC = () => {
                 fullWidth
                 required
                 disabled={loading}
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2.25,
-                    transition: "all 0.15s ease",
-                    "& fieldset": { borderColor: "#e2e8f0" },
-                    "&:hover fieldset": { borderColor: "#cbd5e1" },
-                    "&.Mui-focused": {
-                      bgcolor: "#ffffff",
-                      "& fieldset": {
-                        borderColor: "#2563eb",
-                        borderWidth: 1.5,
-                      },
-                      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
-                    },
-                  },
-                  "& .MuiInputBase-input": {
-                    fontSize: "0.9rem",
-                    py: 1.3,
-                  },
-                }}
+                sx={inputFieldSx}
                 slotProps={{
                   input: {
                     startAdornment: (
@@ -358,9 +328,7 @@ export const LoginPage: FC = () => {
                   boxShadow: "0 6px 16px rgba(15, 23, 42, 0.35)",
                   transform: "translateY(-1px)",
                 },
-                "&:active": {
-                  transform: "translateY(0)",
-                },
+                "&:active": { transform: "translateY(0)" },
               }}
             >
               {loading ? (
@@ -372,7 +340,6 @@ export const LoginPage: FC = () => {
           </Box>
         </form>
 
-        {/* Security badge footer */}
         <Box
           sx={{
             display: "flex",

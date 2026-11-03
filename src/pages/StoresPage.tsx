@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC, type FormEvent } from "react";
+import { useState, useEffect, type FC, type SubmitEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -22,42 +22,25 @@ import PlaceRoundedIcon from "@mui/icons-material/PlaceRounded";
 import RadarRoundedIcon from "@mui/icons-material/RadarRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
-import { apiService, hasConfiguredAccountId } from "../services/api";
-import { notify } from "../services/notify";
-import type { Store, User } from "../types";
+import {
+  apiService,
+  hasConfiguredAccountId,
+  notify,
+  type Store,
+  type User,
+} from "../services/api";
+
+const inputFieldSx = {
+  "& .MuiOutlinedInput-root": { bgcolor: "#f8fafc", borderRadius: 2 },
+};
 
 export const StoresPage: FC = () => {
   const navigate = useNavigate();
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [storesError, setStoresError] = useState<string | null>(null);
-  const [, setIsLoading] = useState(true);
-  const hasAccountId = hasConfiguredAccountId;
-
-  const loadData = async () => {
-    try {
-      const [storeRes, userRes] = await Promise.all([
-        apiService.getStores(),
-        apiService.getUsers(),
-      ]);
-      setStores(storeRes.data || []);
-      setStoresError(storeRes.error || null);
-      setUsers(userRes.data || []);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const selectedStore =
-    stores.find((s) => s._id === selectedId) || stores[0] || null;
-
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -66,6 +49,25 @@ export const StoresPage: FC = () => {
   const [detectingGps, setDetectingGps] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const hasAccountId = hasConfiguredAccountId;
+
+  const loadData = async () => {
+    const [storeRes, userRes] = await Promise.all([
+      apiService.getStores(),
+      apiService.getUsers(),
+    ]);
+    setStores(storeRes.data || []);
+    setStoresError(storeRes.error || null);
+    setUsers(userRes.data || []);
+  };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectedStore =
+    stores.find((s) => s._id === selectedId) || stores[0] || null;
 
   const handleCopy = (id: string) => {
     navigator.clipboard.writeText(id);
@@ -87,7 +89,7 @@ export const StoresPage: FC = () => {
     );
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
     if (
       !name.trim() ||
@@ -230,7 +232,7 @@ export const StoresPage: FC = () => {
                     border: isSelected
                       ? "2px solid #2563eb"
                       : "1px solid #e2e8f0",
-                    bgcolor: isSelected ? "#ffffff" : "#ffffff",
+                    bgcolor: "#ffffff",
                     boxShadow: isSelected
                       ? "0 8px 20px -4px rgba(37, 99, 235, 0.15)"
                       : "0 1px 3px rgba(0,0,0,0.03)",
@@ -392,7 +394,7 @@ export const StoresPage: FC = () => {
 
               <Divider />
 
-              {/* Radar Graphics */}
+              {/* Radar Visualizer */}
               <Box
                 sx={{
                   width: "100%",
@@ -484,50 +486,36 @@ export const StoresPage: FC = () => {
               </Box>
 
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" sx={{ color: "#64748b" }}>
-                    Anchor Latitude:
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
+                {[
+                  { label: "Anchor Latitude:", val: selectedStore.latitude },
+                  { label: "Anchor Longitude:", val: selectedStore.longitude },
+                  {
+                    label: "Assigned Workforce:",
+                    val: `${users.filter((u) => u.storeId === selectedStore._id).length} Active Staff`,
+                  },
+                ].map((row) => (
+                  <Box
+                    key={row.label}
+                    sx={{ display: "flex", justifyContent: "space-between" }}
                   >
-                    {selectedStore.latitude}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" sx={{ color: "#64748b" }}>
-                    Anchor Longitude:
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
-                  >
-                    {selectedStore.longitude}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" sx={{ color: "#64748b" }}>
-                    Assigned Workforce:
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
-                  >
-                    {
-                      users.filter((u) => u.storeId === selectedStore._id)
-                        .length
-                    }{" "}
-                    Active Staff
-                  </Typography>
-                </Box>
+                    <Typography variant="body2" sx={{ color: "#64748b" }}>
+                      {row.label}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 700, color: "#0f172a" }}
+                    >
+                      {row.val}
+                    </Typography>
+                  </Box>
+                ))}
               </Box>
             </Paper>
           )}
         </Box>
       )}
 
-      {/* Modal Dialog */}
+      {/* Register Modal Dialog */}
       <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -565,12 +553,7 @@ export const StoresPage: FC = () => {
                 onChange={(e) => setName(e.target.value)}
                 fullWidth
                 required
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2,
-                  },
-                }}
+                sx={inputFieldSx}
               />
             </Box>
             <Box>
@@ -591,12 +574,7 @@ export const StoresPage: FC = () => {
                 onChange={(e) => setAddress(e.target.value)}
                 fullWidth
                 required
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f8fafc",
-                    borderRadius: 2,
-                  },
-                }}
+                sx={inputFieldSx}
               />
             </Box>
             <Box
@@ -624,12 +602,7 @@ export const StoresPage: FC = () => {
                   onChange={(e) => setLatitude(e.target.value)}
                   fullWidth
                   required
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      bgcolor: "#f8fafc",
-                      borderRadius: 2,
-                    },
-                  }}
+                  sx={inputFieldSx}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
@@ -650,12 +623,7 @@ export const StoresPage: FC = () => {
                   onChange={(e) => setLongitude(e.target.value)}
                   fullWidth
                   required
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      bgcolor: "#f8fafc",
-                      borderRadius: 2,
-                    },
-                  }}
+                  sx={inputFieldSx}
                 />
               </Box>
             </Box>

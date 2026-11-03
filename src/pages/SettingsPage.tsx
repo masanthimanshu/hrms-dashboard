@@ -10,12 +10,15 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import SecurityRoundedIcon from "@mui/icons-material/SecurityRounded";
-import { apiService, BASE_URL, hasConfiguredAccountId } from "../services/api";
-import { notify } from "../services/notify";
-import type { BackendHealthState } from "../types";
+import {
+  apiService,
+  BASE_URL,
+  hasConfiguredAccountId,
+  notify,
+  type BackendHealthState,
+} from "../services/api";
 
 export const SettingsPage: FC = () => {
-  const hasAccountId = hasConfiguredAccountId;
   const [testing, setTesting] = useState(false);
   const [healthState, setHealthState] = useState<BackendHealthState | null>(
     null,
@@ -26,9 +29,8 @@ export const SettingsPage: FC = () => {
     try {
       const result = await apiService.testHealth();
       setHealthState(result);
-      if (result.rootHealth) {
+      if (result.rootHealth)
         notify("Backend health check completed", "success");
-      }
     } finally {
       setTesting(false);
     }
@@ -97,10 +99,10 @@ export const SettingsPage: FC = () => {
             p: 2.5,
             mb: 3,
             borderRadius: 3,
-            bgcolor: hasAccountId
+            bgcolor: hasConfiguredAccountId
               ? "rgba(22, 163, 74, 0.05)"
               : "rgba(217, 119, 6, 0.05)",
-            border: `1px solid ${hasAccountId ? "rgba(22, 163, 74, 0.2)" : "rgba(217, 119, 6, 0.2)"}`,
+            border: `1px solid ${hasConfiguredAccountId ? "rgba(22, 163, 74, 0.2)" : "rgba(217, 119, 6, 0.2)"}`,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -108,7 +110,10 @@ export const SettingsPage: FC = () => {
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
             <SecurityRoundedIcon
-              sx={{ color: hasAccountId ? "#16a34a" : "#d97706", fontSize: 26 }}
+              sx={{
+                color: hasConfiguredAccountId ? "#16a34a" : "#d97706",
+                fontSize: 26,
+              }}
             />
             <Box>
               <Typography
@@ -116,7 +121,9 @@ export const SettingsPage: FC = () => {
                 sx={{ fontWeight: 800, color: "#0f172a" }}
               >
                 Administrative Credentials:{" "}
-                {hasAccountId ? "Active & Configured" : "Not Detected in .env"}
+                {hasConfiguredAccountId
+                  ? "Active & Configured"
+                  : "Not Detected in .env"}
               </Typography>
               <Typography variant="caption" sx={{ color: "#64748b" }}>
                 Your administrative secret is securely attached to all

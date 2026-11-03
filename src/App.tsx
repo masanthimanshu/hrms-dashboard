@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -7,18 +7,54 @@ import {
   useLocation,
   Outlet,
 } from "react-router-dom";
-import { ThemeProvider, CssBaseline, Snackbar, Alert } from "@mui/material";
+import {
+  ThemeProvider,
+  CssBaseline,
+  Snackbar,
+  Alert,
+  Box,
+  CircularProgress,
+} from "@mui/material";
 import { theme } from "./theme";
 import { Layout } from "./components/Layout";
-import { LoginPage } from "./pages/LoginPage";
-import { OverviewPage } from "./pages/OverviewPage";
-import { EmployeesPage } from "./pages/EmployeesPage";
-import { StoresPage } from "./pages/StoresPage";
-import { AttendancePage } from "./pages/AttendancePage";
-import { AnalyticsPage } from "./pages/AnalyticsPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { apiService } from "./services/api";
-import { subscribeNotification } from "./services/notify";
+import { apiService, subscribeNotification } from "./services/api";
+
+const LoginPage = lazy(() =>
+  import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })),
+);
+const OverviewPage = lazy(() =>
+  import("./pages/OverviewPage").then((m) => ({ default: m.OverviewPage })),
+);
+const EmployeesPage = lazy(() =>
+  import("./pages/EmployeesPage").then((m) => ({ default: m.EmployeesPage })),
+);
+const StoresPage = lazy(() =>
+  import("./pages/StoresPage").then((m) => ({ default: m.StoresPage })),
+);
+const AttendancePage = lazy(() =>
+  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
+);
+const AnalyticsPage = lazy(() =>
+  import("./pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+
+function RouteLoader() {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "50vh",
+      }}
+    >
+      <CircularProgress size={32} sx={{ color: "#0f172a" }} />
+    </Box>
+  );
+}
 
 function ProtectedRoute() {
   const isAuth = apiService.isAuthenticated();
@@ -51,24 +87,26 @@ export default function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
+        <Suspense fallback={<RouteLoader />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
 
-          <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/overview" replace />} />
-              <Route path="overview" element={<OverviewPage />} />
-              <Route path="employees" element={<EmployeesPage />} />
-              <Route path="stores" element={<StoresPage />} />
-              <Route path="attendance" element={<AttendancePage />} />
-              <Route path="analytics" element={<AnalyticsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="*" element={<Navigate to="/overview" replace />} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<Navigate to="/overview" replace />} />
+                <Route path="overview" element={<OverviewPage />} />
+                <Route path="employees" element={<EmployeesPage />} />
+                <Route path="stores" element={<StoresPage />} />
+                <Route path="attendance" element={<AttendancePage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/overview" replace />} />
+              </Route>
             </Route>
-          </Route>
 
-          <Route path="*" element={<Navigate to="/overview" replace />} />
-        </Routes>
+            <Route path="*" element={<Navigate to="/overview" replace />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
 
       <Snackbar
