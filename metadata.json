@@ -1,0 +1,6 @@
+{
+  "name": "Scoobies HRMS Admin Dashboard",
+  "description": "Employer administration dashboard for HRMS with store locations, real-time employee lifecycle, geofenced attendance monitoring, and intuitive workforce analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
