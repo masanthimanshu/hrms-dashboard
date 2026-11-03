@@ -1,40 +1,39 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import type { FC } from "react";
+import { useState, useEffect, type FC } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Typography, Paper, Divider, Button } from "@mui/material";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
-import { useHrms } from "../context/HrmsContext";
+import { apiService } from "../services/api";
+import type { AttendanceRecord, Store } from "../types";
 
 export const AnalyticsPage: FC = () => {
   const navigate = useNavigate();
-  const { stores, attendance } = useHrms();
+  const [stores, setStores] = useState<Store[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
 
-  // 1. Geofence Compliance stats from live attendance
-  const totalLogs = attendance.length;
-  const compliantLogs = attendance.filter(
-    (a) => Number(a.distance) <= 100,
-  ).length;
-  const borderlineLogs = attendance.filter(
+  useEffect(() => {
+    Promise.all([apiService.getStores(), apiService.getLiveAttendance()]).then(
+      ([storeRes, attRes]) => {
+        setStores(storeRes.data || []);
+        setAttendance(attRes.data || []);
+      },
+    );
+  }, []);
+
+  const total = attendance.length;
+  const compliant = attendance.filter((a) => Number(a.distance) <= 100).length;
+  const borderline = attendance.filter(
     (a) => Number(a.distance) > 100 && Number(a.distance) <= 250,
   ).length;
-  const outlierLogs = totalLogs - compliantLogs - borderlineLogs;
+  const outlier = total - compliant - borderline;
 
-  const compliantPct =
-    totalLogs > 0 ? Math.round((compliantLogs / totalLogs) * 100) : 0;
-  const borderlinePct =
-    totalLogs > 0 ? Math.round((borderlineLogs / totalLogs) * 100) : 0;
-  const outlierPct =
-    totalLogs > 0 ? Math.round((outlierLogs / totalLogs) * 100) : 0;
+  const compliantPct = total > 0 ? Math.round((compliant / total) * 100) : 0;
+  const borderlinePct = total > 0 ? Math.round((borderline / total) * 100) : 0;
+  const outlierPct = total > 0 ? Math.round((outlier / total) * 100) : 0;
 
-  // 2. Clock-in hourly distribution
-  const hourlyBuckets = [
+  const hourly = [
     { hour: "7 AM", count: 0 },
     { hour: "8 AM", count: 0 },
     { hour: "9 AM", count: 0 },
@@ -46,84 +45,84 @@ export const AnalyticsPage: FC = () => {
 
   attendance.forEach((rec) => {
     if (!rec.createdAt) return;
-    const date = new Date(rec.createdAt);
-    const h = date.getHours();
-    if (h <= 7) hourlyBuckets[0].count++;
-    else if (h === 8) hourlyBuckets[1].count++;
-    else if (h === 9) hourlyBuckets[2].count++;
-    else if (h === 10) hourlyBuckets[3].count++;
-    else if (h === 11) hourlyBuckets[4].count++;
-    else if (h === 12) hourlyBuckets[5].count++;
-    else hourlyBuckets[6].count++;
+    const h = new Date(rec.createdAt).getHours();
+    if (h <= 7) hourly[0].count++;
+    else if (h === 8) hourly[1].count++;
+    else if (h === 9) hourly[2].count++;
+    else if (h === 10) hourly[3].count++;
+    else if (h === 11) hourly[4].count++;
+    else if (h === 12) hourly[5].count++;
+    else hourly[6].count++;
   });
 
-  const maxHourCount = Math.max(...hourlyBuckets.map((b) => b.count), 1);
+  const maxHour = Math.max(...hourly.map((b) => b.count), 1);
 
-  // 3. Store check-ins breakdown
   const storeCheckinMap: Record<string, number> = {};
   attendance.forEach((a) => {
-    if (a.storeId) {
+    if (a.storeId)
       storeCheckinMap[a.storeId] = (storeCheckinMap[a.storeId] || 0) + 1;
-    }
   });
-
-  const maxStoreCount = Math.max(
+  const maxStore = Math.max(
     ...stores.map((s) => storeCheckinMap[s._id] || 0),
     1,
   );
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {/* Overview Intro */}
       <Paper
-        elevation={1}
-        sx={{ p: 2.5, bgcolor: "#ffffff", borderRadius: 2.5 }}
+        elevation={0}
+        sx={{
+          p: 3,
+          borderRadius: 3.5,
+          bgcolor: "#ffffff",
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+        }}
       >
         <Typography
           variant="h6"
-          sx={{ fontWeight: 700, color: "#0f172a", mb: 0.5 }}
+          sx={{
+            fontWeight: 800,
+            color: "#0f172a",
+            letterSpacing: "-0.015em",
+            mb: 0.5,
+          }}
         >
           Live Workforce Analytics & Compliance Audit
         </Typography>
         <Typography variant="body2" sx={{ color: "#64748b" }}>
-          Real-time metrics computed directly from active staff and MongoDB
+          Real-time metrics computed directly from active staff and database
           attendance events.
         </Typography>
       </Paper>
 
-      {totalLogs === 0 ? (
+      {total === 0 ? (
         <Paper
-          elevation={1}
-          sx={{ p: 6, borderRadius: 3, textAlign: "center" }}
+          elevation={0}
+          sx={{
+            p: 6,
+            borderRadius: 3.5,
+            textAlign: "center",
+            border: "1px solid #e2e8f0",
+            bgcolor: "#ffffff",
+          }}
         >
           <QueryStatsRoundedIcon
             sx={{ fontSize: 48, color: "#94a3b8", mb: 1.5 }}
           />
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700, color: "#0f172a", mb: 0.5 }}
-          >
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>
             No Live Attendance Logs Recorded Yet
           </Typography>
-          <Typography
-            variant="body2"
-            sx={{ color: "#64748b", maxWidth: 460, mx: "auto", mb: 2 }}
-          >
-            Once employees begin clocking in via the mobile app, arrival rush
-            hours and geofence accuracy distributions will chart here in
-            real-time.
+          <Typography variant="body2" sx={{ color: "#64748b", mb: 2 }}>
+            Once employees begin clocking in, rush hours and accuracy
+            distributions will chart here in real-time.
           </Typography>
-          <Button
-            variant="contained"
-            onClick={() => navigate("/attendance")}
-            sx={{ bgcolor: "#0f172a" }}
-          >
+          <Button variant="contained" onClick={() => navigate("/attendance")}>
             Go to Attendance View
           </Button>
         </Paper>
       ) : (
         <>
-          {/* Row 1: Geofence Compliance & Hourly Distribution */}
           <Box
             sx={{
               display: "grid",
@@ -131,27 +130,28 @@ export const AnalyticsPage: FC = () => {
               gap: 2.5,
             }}
           >
-            {/* Geofence Scorecard */}
+            {/* Accuracy circle */}
             <Paper
-              elevation={1}
+              elevation={0}
               sx={{
                 p: 3,
-                borderRadius: 2.5,
-                display: "flex",
-                flexDirection: "column",
+                borderRadius: 3.5,
+                bgcolor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
               }}
             >
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
+                  alignItems: "center",
                   mb: 2,
                 }}
               >
                 <Typography
                   variant="subtitle1"
-                  sx={{ fontWeight: 700, color: "#0f172a" }}
+                  sx={{ fontWeight: 800, color: "#0f172a" }}
                 >
                   Live Geofence Accuracy
                 </Typography>
@@ -159,23 +159,15 @@ export const AnalyticsPage: FC = () => {
               </Box>
               <Divider sx={{ mb: 2.5 }} />
 
-              {/* Circular representation */}
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  my: 2,
-                }}
-              >
+              <Box sx={{ display: "flex", justifyContent: "center", my: 2 }}>
                 <Box sx={{ position: "relative", width: 170, height: 170 }}>
                   <svg width="170" height="170" viewBox="0 0 170 170">
                     <circle
                       cx="85"
                       cy="85"
                       r="70"
-                      stroke="#e2e8f0"
-                      strokeWidth="16"
+                      stroke="#f1f5f9"
+                      strokeWidth="15"
                       fill="transparent"
                     />
                     <circle
@@ -183,7 +175,7 @@ export const AnalyticsPage: FC = () => {
                       cy="85"
                       r="70"
                       stroke="#16a34a"
-                      strokeWidth="16"
+                      strokeWidth="15"
                       strokeDasharray={`${(compliantPct / 100) * 440} 440`}
                       strokeLinecap="round"
                       transform="rotate(-90 85 85)"
@@ -205,16 +197,18 @@ export const AnalyticsPage: FC = () => {
                       sx={{
                         fontWeight: 800,
                         color: "#0f172a",
-                        lineHeight: 1,
-                        fontFamily: '"JetBrains Mono", monospace',
-                        fontVariantNumeric: "tabular-nums",
+                        letterSpacing: "-0.02em",
                       }}
                     >
                       {compliantPct}%
                     </Typography>
                     <Typography
                       variant="caption"
-                      sx={{ color: "#64748b", fontWeight: 600 }}
+                      sx={{
+                        color: "#64748b",
+                        fontWeight: 700,
+                        fontSize: "0.72rem",
+                      }}
                     >
                       On-Site Valid
                     </Typography>
@@ -222,7 +216,6 @@ export const AnalyticsPage: FC = () => {
                 </Box>
               </Box>
 
-              {/* Breakdown */}
               <Box
                 sx={{
                   display: "flex",
@@ -236,130 +229,129 @@ export const AnalyticsPage: FC = () => {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
+                    p: 1,
+                    borderRadius: 2,
+                    bgcolor: "#f8fafc",
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box
                       sx={{
-                        width: 10,
-                        height: 10,
+                        width: 8,
+                        height: 8,
                         borderRadius: "50%",
                         bgcolor: "#16a34a",
+                        boxShadow: "0 0 6px #16a34a",
                       }}
                     />
                     <Typography
                       variant="body2"
-                      sx={{ color: "#334155", fontWeight: 500 }}
+                      sx={{ color: "#334155", fontWeight: 600 }}
                     >
-                      Strictly On-Site (&le;100m)
+                      Strictly On-Site (≤100m)
                     </Typography>
                   </Box>
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontWeight: 700,
-                      color: "#0f172a",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    sx={{ fontWeight: 800, color: "#0f172a" }}
                   >
-                    {compliantLogs} ({compliantPct}%)
+                    {compliant} ({compliantPct}%)
                   </Typography>
                 </Box>
-
                 <Box
                   sx={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
+                    p: 1,
+                    borderRadius: 2,
+                    bgcolor: "#f8fafc",
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box
                       sx={{
-                        width: 10,
-                        height: 10,
+                        width: 8,
+                        height: 8,
                         borderRadius: "50%",
                         bgcolor: "#d97706",
+                        boxShadow: "0 0 6px #d97706",
                       }}
                     />
                     <Typography
                       variant="body2"
-                      sx={{ color: "#334155", fontWeight: 500 }}
+                      sx={{ color: "#334155", fontWeight: 600 }}
                     >
                       Near Boundary (100–250m)
                     </Typography>
                   </Box>
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontWeight: 700,
-                      color: "#0f172a",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    sx={{ fontWeight: 800, color: "#0f172a" }}
                   >
-                    {borderlineLogs} ({borderlinePct}%)
+                    {borderline} ({borderlinePct}%)
                   </Typography>
                 </Box>
-
                 <Box
                   sx={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
+                    p: 1,
+                    borderRadius: 2,
+                    bgcolor: "#f8fafc",
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box
                       sx={{
-                        width: 10,
-                        height: 10,
+                        width: 8,
+                        height: 8,
                         borderRadius: "50%",
                         bgcolor: "#dc2626",
+                        boxShadow: "0 0 6px #dc2626",
                       }}
                     />
                     <Typography
                       variant="body2"
-                      sx={{ color: "#334155", fontWeight: 500 }}
+                      sx={{ color: "#334155", fontWeight: 600 }}
                     >
                       Outside Perimeter (&gt;250m)
                     </Typography>
                   </Box>
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontWeight: 700,
-                      color: "#0f172a",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    sx={{ fontWeight: 800, color: "#0f172a" }}
                   >
-                    {outlierLogs} ({outlierPct}%)
+                    {outlier} ({outlierPct}%)
                   </Typography>
                 </Box>
               </Box>
             </Paper>
 
-            {/* Hourly Distribution */}
+            {/* Hourly */}
             <Paper
-              elevation={1}
+              elevation={0}
               sx={{
                 p: 3,
-                borderRadius: 2.5,
-                display: "flex",
-                flexDirection: "column",
+                borderRadius: 3.5,
+                bgcolor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
               }}
             >
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
+                  alignItems: "center",
                   mb: 2,
                 }}
               >
                 <Box>
                   <Typography
                     variant="subtitle1"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
+                    sx={{ fontWeight: 800, color: "#0f172a" }}
                   >
                     Clock-in Volume by Hour
                   </Typography>
@@ -376,87 +368,85 @@ export const AnalyticsPage: FC = () => {
                   display: "flex",
                   alignItems: "flex-end",
                   justifyContent: "space-between",
-                  gap: { xs: 1, sm: 2 },
-                  height: 200,
-                  pt: 2,
-                  pb: 1,
+                  height: 190,
                   px: 1,
                 }}
               >
-                {hourlyBuckets.map((bucket) => {
-                  const heightPct = Math.max(
-                    (bucket.count / maxHourCount) * 100,
-                    6,
-                  );
-                  return (
-                    <Box
-                      key={bucket.hour}
+                {hourly.map((b) => (
+                  <Box
+                    key={b.hour}
+                    sx={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 1,
+                      height: "100%",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
                       sx={{
-                        flex: 1,
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 1,
-                        height: "100%",
-                        justifyContent: "flex-end",
+                        fontWeight: 800,
+                        color: b.count > 0 ? "#0f172a" : "#94a3b8",
+                        fontSize: "0.75rem",
                       }}
                     >
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 700,
-                          color: bucket.count > 0 ? "#0f172a" : "#94a3b8",
-                          fontSize: "0.75rem",
-                          fontFamily: '"JetBrains Mono", monospace',
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {bucket.count}
-                      </Typography>
-
-                      <Box
-                        sx={{
-                          width: "100%",
-                          maxWidth: 38,
-                          height: `${heightPct}%`,
-                          bgcolor: bucket.count > 0 ? "#2563eb" : "#f1f5f9",
-                          borderRadius: "6px 6px 2px 2px",
-                          transition: "height 0.3s ease",
-                        }}
-                      />
-
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: "#64748b",
-                          fontSize: { xs: "0.65rem", sm: "0.75rem" },
-                          fontWeight: 500,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {bucket.hour}
-                      </Typography>
-                    </Box>
-                  );
-                })}
+                      {b.count}
+                    </Typography>
+                    <Box
+                      sx={{
+                        width: "100%",
+                        maxWidth: 38,
+                        height: `${Math.max((b.count / maxHour) * 100, 6)}%`,
+                        background:
+                          b.count > 0
+                            ? "linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)"
+                            : "#f1f5f9",
+                        borderRadius: "6px 6px 0 0",
+                        transition: "height 0.2s ease",
+                      }}
+                    />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "#64748b",
+                        fontWeight: 600,
+                        fontSize: "0.72rem",
+                      }}
+                    >
+                      {b.hour}
+                    </Typography>
+                  </Box>
+                ))}
               </Box>
             </Paper>
           </Box>
 
-          {/* Row 2: Branch Activity */}
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 2.5 }}>
+          {/* Branch Activity */}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 3,
+              borderRadius: 3.5,
+              bgcolor: "#ffffff",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+            }}
+          >
             <Box
               sx={{
                 display: "flex",
-                alignItems: "center",
                 justifyContent: "space-between",
+                alignItems: "center",
                 mb: 2,
               }}
             >
               <Box>
                 <Typography
                   variant="subtitle1"
-                  sx={{ fontWeight: 700, color: "#0f172a" }}
+                  sx={{ fontWeight: 800, color: "#0f172a" }}
                 >
                   Live Turnout by Workplace Branch
                 </Typography>
@@ -468,52 +458,35 @@ export const AnalyticsPage: FC = () => {
             </Box>
             <Divider sx={{ mb: 2.5 }} />
 
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {stores.map((store) => {
                 const count = storeCheckinMap[store._id] || 0;
-                const pct = Math.round((count / maxStoreCount) * 100);
-
+                const pct = Math.round((count / maxStore) * 100);
                 return (
                   <Box key={store._id}>
                     <Box
                       sx={{
                         display: "flex",
                         justifyContent: "space-between",
-                        alignItems: "center",
                         mb: 0.75,
                       }}
                     >
-                      <Box>
-                        <Typography
-                          variant="subtitle2"
-                          sx={{ fontWeight: 600, color: "#0f172a" }}
-                        >
-                          {store.name}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: "#64748b" }}>
-                          {store.address}
-                        </Typography>
-                      </Box>
-
                       <Typography
-                        variant="body2"
-                        sx={{
-                          fontWeight: 700,
-                          color: "#0f172a",
-                          fontFamily: '"JetBrains Mono", monospace',
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        variant="subtitle2"
+                        sx={{ fontWeight: 700, color: "#0f172a" }}
                       >
+                        {store.name}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 800 }}>
                         {count} check-ins
                       </Typography>
                     </Box>
-
                     <Box
                       sx={{
-                        height: 10,
+                        height: 8,
                         width: "100%",
                         bgcolor: "#f1f5f9",
-                        borderRadius: 5,
+                        borderRadius: 4,
                         overflow: "hidden",
                       }}
                     >
@@ -521,8 +494,11 @@ export const AnalyticsPage: FC = () => {
                         sx={{
                           height: "100%",
                           width: `${Math.max(pct, 4)}%`,
-                          bgcolor: count > 0 ? "#3b82f6" : "#cbd5e1",
-                          borderRadius: 5,
+                          background:
+                            count > 0
+                              ? "linear-gradient(90deg, #3b82f6, #2563eb)"
+                              : "#cbd5e1",
+                          borderRadius: 4,
                         }}
                       />
                     </Box>

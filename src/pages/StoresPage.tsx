@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect, type FC, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -18,7 +13,6 @@ import {
   Divider,
   Alert,
   Tooltip,
-  CircularProgress,
 } from "@mui/material";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import AddLocationAltRoundedIcon from "@mui/icons-material/AddLocationAltRounded";
@@ -28,33 +22,43 @@ import PlaceRoundedIcon from "@mui/icons-material/PlaceRounded";
 import RadarRoundedIcon from "@mui/icons-material/RadarRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
-import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
-import { useHrms } from "../context/HrmsContext";
-import type { Store } from "../types";
+import { apiService, hasConfiguredAccountId } from "../services/api";
+import { notify } from "../services/notify";
+import type { Store, User } from "../types";
 
 export const StoresPage: FC = () => {
   const navigate = useNavigate();
-  const { stores, users, createStore, storesError, hasAccountId } = useHrms();
+  const [stores, setStores] = useState<Store[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [storesError, setStoresError] = useState<string | null>(null);
+  const [, setIsLoading] = useState(true);
+  const hasAccountId = hasConfiguredAccountId;
 
-  const [selectedStore, setSelectedStore] = useState<Store | null>(
-    stores[0] || null,
-  );
+  const loadData = async () => {
+    try {
+      const [storeRes, userRes] = await Promise.all([
+        apiService.getStores(),
+        apiService.getUsers(),
+      ]);
+      setStores(storeRes.data || []);
+      setStoresError(storeRes.error || null);
+      setUsers(userRes.data || []);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Sync selectedStore if stores change
-  useEffect(() => {
-    if (!selectedStore && stores.length > 0) {
-      setSelectedStore(stores[0]);
-    } else if (
-      selectedStore &&
-      !stores.some((s) => s._id === selectedStore._id)
-    ) {
-      setSelectedStore(stores[0] || null);
-    }
-  }, [stores, selectedStore]);
+  const selectedStore =
+    stores.find((s) => s._id === selectedId) || stores[0] || null;
 
-  // New store form state
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState("");
@@ -63,85 +67,66 @@ export const StoresPage: FC = () => {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = (id: string) => {
+    navigator.clipboard.writeText(id);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDetectLocation = () => {
-    if (!navigator.geolocation) {
-      setFormError("Geolocation is not supported by your browser.");
-      return;
-    }
+  const handleDetectGPS = () => {
+    if (!navigator.geolocation) return;
     setDetectingGps(true);
-    setFormError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLatitude(pos.coords.latitude.toFixed(6));
         setLongitude(pos.coords.longitude.toFixed(6));
         setDetectingGps(false);
       },
-      (err) => {
-        setFormError(`Unable to retrieve GPS coordinates: ${err.message}`);
-        setDetectingGps(false);
-      },
-      { timeout: 10000 },
+      () => setDetectingGps(false),
+      { timeout: 8000 },
     );
   };
 
-  const handleFormSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setFormError("Please enter a location name");
+    if (
+      !name.trim() ||
+      !address.trim() ||
+      !latitude.trim() ||
+      !longitude.trim()
+    ) {
+      setFormError("All fields are required");
       return;
     }
-    if (!address.trim()) {
-      setFormError("Please enter the street address");
-      return;
-    }
-    if (!latitude.trim() || !longitude.trim()) {
-      setFormError(
-        "Please provide valid latitude and longitude GPS coordinates",
-      );
-      return;
-    }
-
     setFormSubmitting(true);
     setFormError(null);
-    try {
-      const res = await createStore({
-        name: name.trim(),
-        address: address.trim(),
-        latitude: latitude.trim(),
-        longitude: longitude.trim(),
-      });
-      if (res.success) {
-        setName("");
-        setAddress("");
-        setLatitude("");
-        setLongitude("");
-        setCreateModalOpen(false);
-      } else {
-        setFormError(
-          res.message || "Failed to register location on live backend",
-        );
-      }
-    } catch (err) {
-      setFormError(
-        err instanceof Error ? err.message : "Error submitting location",
-      );
-    } finally {
-      setFormSubmitting(false);
+    const res = await apiService.createStore({
+      name,
+      address,
+      latitude,
+      longitude,
+    });
+    setFormSubmitting(false);
+    if (res.success) {
+      notify("Workplace location created", "success");
+      setName("");
+      setAddress("");
+      setLatitude("");
+      setLongitude("");
+      setModalOpen(false);
+      loadData();
+    } else {
+      notify(res.message || "Failed to create store", "error");
+      setFormError(res.message || "Failed to create store");
     }
   };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {/* Top Banner or Error Alert */}
       {storesError && (
         <Alert
           severity="error"
+          sx={{ borderRadius: 3, border: "1px solid #fecaca" }}
           action={
             <Button
               color="inherit"
@@ -151,89 +136,72 @@ export const StoresPage: FC = () => {
               Settings
             </Button>
           }
-          sx={{ borderRadius: 2 }}
         >
           {storesError}
         </Alert>
       )}
 
-      {/* Top Action Bar */}
       <Box
         sx={{
           display: "flex",
-          flexDirection: { xs: "column", sm: "row" },
           justifyContent: "space-between",
-          alignItems: { xs: "flex-start", sm: "center" },
-          gap: 2,
+          alignItems: "center",
         }}
       >
         <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: "#0f172a" }}>
+          <Typography
+            variant="h6"
+            sx={{
+              fontWeight: 800,
+              color: "#0f172a",
+              letterSpacing: "-0.015em",
+            }}
+          >
             Workplace Locations & Geofence Perimeters
           </Typography>
           <Typography variant="body2" sx={{ color: "#64748b" }}>
             Physical workplace anchors mapped with precise GPS coordinates.
           </Typography>
         </Box>
-
         <Button
           variant="contained"
-          color="primary"
           startIcon={<AddLocationAltRoundedIcon />}
-          onClick={() => setCreateModalOpen(true)}
-          sx={{ bgcolor: "#0f172a" }}
+          onClick={() => setModalOpen(true)}
         >
-          Register New Workplace
+          Register Workplace
         </Button>
       </Box>
 
-      {/* Main Grid: Stores List + Geofence Radar */}
       {stores.length === 0 ? (
         <Paper
-          elevation={1}
+          elevation={0}
           sx={{
             p: 6,
-            borderRadius: 3,
+            borderRadius: 3.5,
             textAlign: "center",
+            border: "1px solid #e2e8f0",
             bgcolor: "#ffffff",
           }}
         >
           <StorefrontRoundedIcon
             sx={{ fontSize: 48, color: "#94a3b8", mb: 1.5 }}
           />
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700, color: "#0f172a", mb: 0.5 }}
-          >
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>
             No Workplace Locations Found
           </Typography>
-          <Typography
-            variant="body2"
-            sx={{ color: "#64748b", maxWidth: 450, mx: "auto", mb: 2 }}
-          >
+          <Typography variant="body2" sx={{ color: "#64748b", mb: 2 }}>
             {!hasAccountId
-              ? "Please configure your administrative credentials in .env to connect to live store records."
-              : "Register your first physical branch or office to establish geofencing rules for shift check-ins."}
+              ? "Configure credentials in settings."
+              : "Register your first branch."}
           </Typography>
-          {!hasAccountId ? (
-            <Button
-              variant="contained"
-              onClick={() => navigate("/settings")}
-              startIcon={<KeyRoundedIcon />}
-              sx={{ bgcolor: "#0f172a" }}
-            >
-              Configure Account Key
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              onClick={() => setCreateModalOpen(true)}
-              startIcon={<AddLocationAltRoundedIcon />}
-              sx={{ bgcolor: "#0f172a" }}
-            >
-              Register First Store
-            </Button>
-          )}
+          <Button
+            variant="contained"
+            onClick={() =>
+              hasAccountId ? setModalOpen(true) : navigate("/settings")
+            }
+          >
+            {hasAccountId ? "Register First Store" : "Configure Settings"}
+          </Button>
         </Paper>
       ) : (
         <Box
@@ -243,30 +211,33 @@ export const StoresPage: FC = () => {
             gap: 2.5,
           }}
         >
-          {/* Left Column: Stores List */}
+          {/* List of Stores */}
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {stores.map((store) => {
-              const assignedStaff = users.filter(
+              const staffCount = users.filter(
                 (u) => u.storeId === store._id,
-              );
+              ).length;
               const isSelected = selectedStore?._id === store._id;
-
               return (
                 <Paper
                   key={store._id}
-                  elevation={1}
-                  onClick={() => setSelectedStore(store)}
+                  elevation={0}
+                  onClick={() => setSelectedId(store._id)}
                   sx={{
-                    p: 2.5,
+                    p: 2.75,
                     cursor: "pointer",
-                    borderRadius: 2.5,
+                    borderRadius: 3.5,
                     border: isSelected
                       ? "2px solid #2563eb"
                       : "1px solid #e2e8f0",
-                    bgcolor: isSelected ? "#f8fafc" : "#ffffff",
-                    transition: "all 0.15s ease",
+                    bgcolor: isSelected ? "#ffffff" : "#ffffff",
+                    boxShadow: isSelected
+                      ? "0 8px 20px -4px rgba(37, 99, 235, 0.15)"
+                      : "0 1px 3px rgba(0,0,0,0.03)",
+                    transition: "all 0.2s ease",
                     "&:hover": {
                       borderColor: isSelected ? "#2563eb" : "#cbd5e1",
+                      transform: "translateY(-1px)",
                     },
                   }}
                 >
@@ -285,11 +256,10 @@ export const StoresPage: FC = () => {
                         sx={{
                           p: 1.25,
                           borderRadius: 2,
-                          bgcolor: isSelected ? "#2563eb" : "#f1f5f9",
-                          color: isSelected ? "#ffffff" : "#334155",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
+                          background: isSelected
+                            ? "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)"
+                            : "#f1f5f9",
+                          color: isSelected ? "#fff" : "#334155",
                         }}
                       >
                         <StorefrontRoundedIcon fontSize="small" />
@@ -297,7 +267,7 @@ export const StoresPage: FC = () => {
                       <Box>
                         <Typography
                           variant="subtitle1"
-                          sx={{ fontWeight: 700, color: "#0f172a" }}
+                          sx={{ fontWeight: 800, color: "#0f172a" }}
                         >
                           {store.name}
                         </Typography>
@@ -309,22 +279,26 @@ export const StoresPage: FC = () => {
                         </Typography>
                       </Box>
                     </Box>
-
                     <Box
-                      sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.5,
+                        bgcolor: "#f8fafc",
+                        px: 1.25,
+                        py: 0.5,
+                        borderRadius: 2,
+                        border: "1px solid #f1f5f9",
+                      }}
                     >
                       <PeopleAltRoundedIcon
                         sx={{ fontSize: 16, color: "#64748b" }}
                       />
                       <Typography
                         variant="caption"
-                        sx={{
-                          fontWeight: 700,
-                          color: "#334155",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        sx={{ fontWeight: 700, color: "#334155" }}
                       >
-                        {assignedStaff.length} Staff
+                        {staffCount} Staff
                       </Typography>
                     </Box>
                   </Box>
@@ -334,10 +308,8 @@ export const StoresPage: FC = () => {
                   <Box
                     sx={{
                       display: "flex",
-                      flexWrap: "wrap",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      gap: 1.5,
                     }}
                   >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -346,76 +318,73 @@ export const StoresPage: FC = () => {
                       />
                       <Typography
                         variant="caption"
-                        sx={{
-                          color: "#475569",
-                          fontSize: "0.78rem",
-                          fontFamily: '"JetBrains Mono", monospace',
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        sx={{ color: "#475569", fontWeight: 600 }}
                       >
                         LAT {store.latitude} · LNG {store.longitude}
                       </Typography>
                     </Box>
-
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Tooltip title="Copy Store ID">
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCopy(store._id, store._id);
-                          }}
-                          startIcon={
-                            copiedId === store._id ? (
-                              <CheckRoundedIcon
-                                sx={{ fontSize: 14, color: "#16a34a" }}
-                              />
-                            ) : (
-                              <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
-                            )
-                          }
-                          sx={{ fontSize: "0.72rem", color: "#64748b", p: 0.5 }}
-                        >
-                          {copiedId === store._id ? "Copied" : "Copy ID"}
-                        </Button>
-                      </Tooltip>
-                    </Box>
+                    <Tooltip title="Copy Store ID">
+                      <Button
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopy(store._id);
+                        }}
+                        startIcon={
+                          copiedId === store._id ? (
+                            <CheckRoundedIcon
+                              sx={{ fontSize: 14, color: "#16a34a" }}
+                            />
+                          ) : (
+                            <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+                          )
+                        }
+                        sx={{
+                          fontSize: "0.72rem",
+                          color: "#64748b",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {copiedId === store._id ? "Copied" : "Copy ID"}
+                      </Button>
+                    </Tooltip>
                   </Box>
                 </Paper>
               );
             })}
           </Box>
 
-          {/* Right Column: Geofence Radar Preview */}
+          {/* Selected Store Radar */}
           {selectedStore && (
             <Paper
-              elevation={1}
+              elevation={0}
               sx={{
                 p: 3,
-                borderRadius: 3,
+                borderRadius: 3.5,
+                bgcolor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                 display: "flex",
                 flexDirection: "column",
                 gap: 2,
-                height: "fit-content",
               }}
             >
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
+                  alignItems: "center",
                 }}
               >
                 <Box>
                   <Typography
                     variant="subtitle1"
-                    sx={{ fontWeight: 700, color: "#0f172a" }}
+                    sx={{ fontWeight: 800, color: "#0f172a" }}
                   >
-                    Geofence Anchor: {selectedStore.name}
+                    Geofence: {selectedStore.name}
                   </Typography>
                   <Typography variant="caption" sx={{ color: "#64748b" }}>
-                    Visualizing 100m perimeter around GPS coordinates
+                    100m perimeter around GPS coordinates
                   </Typography>
                 </Box>
                 <RadarRoundedIcon sx={{ color: "#2563eb" }} />
@@ -423,22 +392,21 @@ export const StoresPage: FC = () => {
 
               <Divider />
 
-              {/* Radar Coordinate Representation */}
+              {/* Radar Graphics */}
               <Box
                 sx={{
                   width: "100%",
                   height: 260,
-                  borderRadius: 2,
-                  bgcolor: "#0f172a",
+                  borderRadius: 3,
+                  bgcolor: "#090d16",
+                  border: "1px solid #1e293b",
                   position: "relative",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   overflow: "hidden",
-                  border: "1px solid #1e293b",
                 }}
               >
-                {/* Concentric Geofence Rings */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -451,11 +419,11 @@ export const StoresPage: FC = () => {
                 <Box
                   sx={{
                     position: "absolute",
-                    width: 150,
-                    height: 150,
+                    width: 140,
+                    height: 140,
                     borderRadius: "50%",
-                    border: "1px solid rgba(59, 130, 246, 0.4)",
-                    bgcolor: "rgba(59, 130, 246, 0.05)",
+                    border: "1px solid rgba(59, 130, 246, 0.45)",
+                    bgcolor: "rgba(59, 130, 246, 0.06)",
                   }}
                 />
                 <Box
@@ -464,44 +432,27 @@ export const StoresPage: FC = () => {
                     width: 80,
                     height: 80,
                     borderRadius: "50%",
-                    border: "1px solid rgba(34, 197, 94, 0.6)",
+                    border: "1px solid rgba(34, 197, 94, 0.65)",
                     bgcolor: "rgba(34, 197, 94, 0.12)",
                   }}
                 />
-
-                {/* Center Anchor Point */}
                 <Box
                   sx={{
                     width: 14,
                     height: 14,
                     borderRadius: "50%",
                     bgcolor: "#3b82f6",
-                    boxShadow: "0 0 12px #3b82f6",
-                    zIndex: 2,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    boxShadow: "0 0 14px #3b82f6",
                   }}
-                >
-                  <Box
-                    sx={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: "50%",
-                      bgcolor: "#ffffff",
-                    }}
-                  />
-                </Box>
-
-                {/* Legend in Radar */}
+                />
                 <Box
                   sx={{
                     position: "absolute",
                     bottom: 12,
                     left: 12,
                     display: "flex",
-                    gap: 1.5,
-                    fontSize: "0.68rem",
+                    gap: 2,
+                    fontSize: "0.7rem",
                     color: "#94a3b8",
                   }}
                 >
@@ -512,6 +463,7 @@ export const StoresPage: FC = () => {
                         height: 8,
                         borderRadius: "50%",
                         bgcolor: "#22c55e",
+                        boxShadow: "0 0 6px #22c55e",
                       }}
                     />
                     <span>&lt;100m Geofence</span>
@@ -523,27 +475,22 @@ export const StoresPage: FC = () => {
                         height: 8,
                         borderRadius: "50%",
                         bgcolor: "#f59e0b",
+                        boxShadow: "0 0 6px #f59e0b",
                       }}
                     />
-                    <span>&gt;100m Out of Bounds</span>
+                    <span>&gt;100m Flagged</span>
                   </Box>
                 </Box>
               </Box>
 
-              {/* Store Details */}
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                   <Typography variant="body2" sx={{ color: "#64748b" }}>
                     Anchor Latitude:
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      fontFamily: '"JetBrains Mono", monospace',
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    sx={{ fontWeight: 700, color: "#0f172a" }}
                   >
                     {selectedStore.latitude}
                   </Typography>
@@ -554,12 +501,7 @@ export const StoresPage: FC = () => {
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      fontFamily: '"JetBrains Mono", monospace',
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    sx={{ fontWeight: 700, color: "#0f172a" }}
                   >
                     {selectedStore.longitude}
                   </Typography>
@@ -570,7 +512,7 @@ export const StoresPage: FC = () => {
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{ fontWeight: 600, color: "#0f172a" }}
+                    sx={{ fontWeight: 700, color: "#0f172a" }}
                   >
                     {
                       users.filter((u) => u.storeId === selectedStore._id)
@@ -585,63 +527,78 @@ export const StoresPage: FC = () => {
         </Box>
       )}
 
-      {/* Register Workplace Modal */}
+      {/* Modal Dialog */}
       <Dialog
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
         maxWidth="sm"
         fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+        slotProps={{ paper: { sx: { borderRadius: 4, p: 1 } } }}
       >
-        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+        <DialogTitle sx={{ fontWeight: 800, letterSpacing: "-0.015em" }}>
           Register Workplace Location
         </DialogTitle>
-        <form onSubmit={handleFormSubmit}>
+        <form onSubmit={handleSubmit}>
           <DialogContent
-            sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
           >
-            <Alert
-              severity="info"
-              sx={{
-                bgcolor: "#eff6ff",
-                color: "#1e40af",
-                border: "1px solid #bfdbfe",
-              }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                Live GPS Anchor Point
-              </Typography>
+            {formError && (
+              <Alert severity="error" sx={{ borderRadius: 2 }}>
+                {formError}
+              </Alert>
+            )}
+            <Box>
               <Typography
                 variant="caption"
-                sx={{ color: "#1e3a8a", display: "block" }}
+                sx={{
+                  fontWeight: 600,
+                  color: "#334155",
+                  mb: 0.75,
+                  display: "block",
+                }}
               >
-                This location is persisted directly into MongoDB via{" "}
-                <code>POST /account/store/create</code>. When employees clock
-                in, their GPS coordinates are measured against these exact
-                coordinates.
+                Workplace / Branch Name
               </Typography>
-            </Alert>
-
-            {formError && <Alert severity="error">{formError}</Alert>}
-
-            <TextField
-              label="Workplace / Branch Name"
-              placeholder="e.g. Austin Regional HQ"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              fullWidth
-              required
-            />
-
-            <TextField
-              label="Physical Street Address"
-              placeholder="e.g. 500 Congress Ave, Austin, TX 78701"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              fullWidth
-              required
-            />
-
+              <TextField
+                placeholder="e.g. Austin Regional HQ"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                fullWidth
+                required
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2,
+                  },
+                }}
+              />
+            </Box>
+            <Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 600,
+                  color: "#334155",
+                  mb: 0.75,
+                  display: "block",
+                }}
+              >
+                Physical Street Address
+              </Typography>
+              <TextField
+                placeholder="e.g. 500 Congress Ave, Austin, TX"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                fullWidth
+                required
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2,
+                  },
+                }}
+              />
+            </Box>
             <Box
               sx={{
                 display: "flex",
@@ -649,60 +606,76 @@ export const StoresPage: FC = () => {
                 flexDirection: { xs: "column", sm: "row" },
               }}
             >
-              <TextField
-                label="Latitude"
-                placeholder="e.g. 30.2672"
-                value={latitude}
-                onChange={(e) => setLatitude(e.target.value)}
-                fullWidth
-                required
-              />
-              <TextField
-                label="Longitude"
-                placeholder="e.g. -97.7431"
-                value={longitude}
-                onChange={(e) => setLongitude(e.target.value)}
-                fullWidth
-                required
-              />
+              <Box sx={{ flex: 1 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontWeight: 600,
+                    color: "#334155",
+                    mb: 0.75,
+                    display: "block",
+                  }}
+                >
+                  Latitude
+                </Typography>
+                <TextField
+                  placeholder="e.g. 30.2672"
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                  fullWidth
+                  required
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: "#f8fafc",
+                      borderRadius: 2,
+                    },
+                  }}
+                />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontWeight: 600,
+                    color: "#334155",
+                    mb: 0.75,
+                    display: "block",
+                  }}
+                >
+                  Longitude
+                </Typography>
+                <TextField
+                  placeholder="e.g. -97.7431"
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                  fullWidth
+                  required
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: "#f8fafc",
+                      borderRadius: 2,
+                    },
+                  }}
+                />
+              </Box>
             </Box>
-
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleDetectLocation}
-                disabled={detectingGps}
-                startIcon={
-                  detectingGps ? (
-                    <CircularProgress size={14} />
-                  ) : (
-                    <MyLocationRoundedIcon sx={{ fontSize: 16 }} />
-                  )
-                }
-                sx={{
-                  borderColor: "#cbd5e1",
-                  color: "#334155",
-                  alignSelf: "flex-start",
-                }}
-              >
-                {detectingGps
-                  ? "Reading Device GPS..."
-                  : "Use My Current GPS Position"}
-              </Button>
-            </Box>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={handleDetectGPS}
+              disabled={detectingGps}
+              startIcon={<MyLocationRoundedIcon />}
+              sx={{ alignSelf: "flex-start", borderRadius: 2 }}
+            >
+              {detectingGps ? "Reading GPS..." : "Use Current GPS"}
+            </Button>
           </DialogContent>
-          <DialogActions sx={{ p: 2.5, pt: 1 }}>
-            <Button onClick={() => setCreateModalOpen(false)} color="inherit">
+          <DialogActions sx={{ p: 2.5 }}>
+            <Button onClick={() => setModalOpen(false)} color="inherit">
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={formSubmitting}
-              sx={{ bgcolor: "#0f172a" }}
-            >
-              {formSubmitting ? "Registering..." : "Save Location"}
+            <Button type="submit" variant="contained" disabled={formSubmitting}>
+              {formSubmitting ? "Saving..." : "Save Location"}
             </Button>
           </DialogActions>
         </form>

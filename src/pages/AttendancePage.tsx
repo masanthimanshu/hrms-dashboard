@@ -1,9 +1,4 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState, type FC } from "react";
+import { useState, useEffect, type FC } from "react";
 import {
   Box,
   Typography,
@@ -22,7 +17,6 @@ import {
   FormControl,
   InputLabel,
   InputAdornment,
-  Tooltip,
   CircularProgress,
   Alert,
 } from "@mui/material";
@@ -32,110 +26,141 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import PhotoCameraRoundedIcon from "@mui/icons-material/PhotoCameraRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import { useHrms } from "../context/HrmsContext";
 import { VerificationPhotoModal } from "../components/VerificationPhotoModal";
-import type { AttendanceRecord } from "../types";
-import { formatAttendanceImageUrl } from "../services/api";
+import type { AttendanceRecord, Store } from "../types";
+import { apiService, formatAttendanceImageUrl } from "../services/api";
+import { notify } from "../services/notify";
 
 export const AttendancePage: FC = () => {
-  const { attendance, stores, isLoading, refreshData, attendanceError } =
-    useHrms();
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const loadData = async () => {
+    try {
+      const [attRes, storeRes, userRes] = await Promise.all([
+        apiService.getLiveAttendance(),
+        apiService.getStores(),
+        apiService.getUsers(),
+      ]);
+      const storeList = storeRes.data || [];
+      const userList = userRes.data || [];
+      const attList = attRes.data || [];
+
+      setStores(storeList);
+      setAttendanceError(attRes.error || null);
+
+      const enrichedLogs: AttendanceRecord[] = attList.map((log) => {
+        const u = userList.find((usr) => usr._id === log.userId);
+        const s = u ? storeList.find((st) => st._id === u.storeId) : undefined;
+        return {
+          ...log,
+          userName:
+            log.userName ||
+            u?.name ||
+            `Staff (${log.userId?.slice(-6) || "Unknown"})`,
+          userEmail: log.userEmail || u?.email || "",
+          storeId: log.storeId || u?.storeId || "",
+          storeName: log.storeName || s?.name || "Assigned Branch",
+        };
+      });
+      setAttendance(enrichedLogs);
+    } catch {
+      notify("Failed to update logs", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("ALL");
-  const [complianceFilter, setComplianceFilter] = useState("ALL");
+  const [ruleFilter, setRuleFilter] = useState("ALL");
   const [inspectingRecord, setInspectingRecord] =
     useState<AttendanceRecord | null>(null);
 
-  const filteredRecords = attendance.filter((rec) => {
-    const matchesSearch =
-      (rec.userName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (rec.userEmail || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (rec.storeName || "").toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStore = storeFilter === "ALL" || rec.storeId === storeFilter;
-
-    const distNum = Number(rec.distance);
-    const matchesCompliance =
-      complianceFilter === "ALL" ||
-      (complianceFilter === "COMPLIANT" && distNum <= 100) ||
-      (complianceFilter === "OUT_OF_BOUNDS" && distNum > 100);
-
-    return matchesSearch && matchesStore && matchesCompliance;
+  const filtered = attendance.filter((rec) => {
+    const s = search.toLowerCase();
+    const matchSearch =
+      (rec.userName || "").toLowerCase().includes(s) ||
+      (rec.userEmail || "").toLowerCase().includes(s) ||
+      (rec.storeName || "").toLowerCase().includes(s);
+    const matchStore = storeFilter === "ALL" || rec.storeId === storeFilter;
+    const dist = Number(rec.distance);
+    const matchRule =
+      ruleFilter === "ALL" ||
+      (ruleFilter === "COMPLIANT" && dist <= 100) ||
+      (ruleFilter === "OUT" && dist > 100);
+    return matchSearch && matchStore && matchRule;
   });
 
-  const handleExportCSV = () => {
-    const headers = [
-      "Log ID",
-      "Employee",
-      "Email",
-      "Store",
-      "Check-In Time",
-      "Distance (m)",
-      "Within 100m Geofence",
-      "Latitude",
-      "Longitude",
-      "Image Asset",
-    ];
-    const rows = filteredRecords.map((r) => [
-      r._id,
-      `"${r.userName || ""}"`,
-      `"${r.userEmail || ""}"`,
-      `"${r.storeName || ""}"`,
-      `"${r.createdAt ? new Date(r.createdAt).toLocaleString() : ""}"`,
-      r.distance,
-      Number(r.distance) <= 100 ? "YES" : "NO",
-      r.latitude,
-      r.longitude,
-      `"${r.imageUrl || ""}"`,
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
+  const exportCSV = () => {
+    const rows = [
+      [
+        "Employee",
+        "Email",
+        "Store",
+        "Clock-in",
+        "Distance(m)",
+        "Within 100m",
+        "Image",
+      ].join(","),
+      ...filtered.map((r) =>
+        [
+          `"${r.userName || ""}"`,
+          `"${r.userEmail || ""}"`,
+          `"${r.storeName || ""}"`,
+          `"${r.createdAt ? new Date(r.createdAt).toLocaleString() : ""}"`,
+          r.distance,
+          Number(r.distance) <= 100 ? "YES" : "NO",
+          `"${r.imageUrl || ""}"`,
+        ].join(","),
+      ),
+    ].join("\n");
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `hrms_attendance_${new Date().toISOString().split("T")[0]}.csv`,
-    );
-    document.body.appendChild(link);
+    link.href = encodeURI("data:text/csv;charset=utf-8," + rows);
+    link.download = `attendance_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
   };
 
-  const totalLogs = attendance.length;
-  const compliantLogs = attendance.filter(
-    (r) => Number(r.distance) <= 100,
-  ).length;
-  const nearLogs = attendance.filter(
+  const total = attendance.length;
+  const compliant = attendance.filter((r) => Number(r.distance) <= 100).length;
+  const near = attendance.filter(
     (r) => Number(r.distance) > 100 && Number(r.distance) <= 250,
   ).length;
-  const outOfBoundsLogs = attendance.filter(
-    (r) => Number(r.distance) > 250,
-  ).length;
+  const outOfBounds = attendance.filter((r) => Number(r.distance) > 250).length;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {/* Top Banner */}
       <Paper
-        elevation={1}
+        elevation={0}
         sx={{
-          p: 2.5,
+          p: 3,
+          borderRadius: 3.5,
           bgcolor: "#ffffff",
-          borderRadius: 2.5,
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
           display: "flex",
-          flexDirection: { xs: "column", md: "row" },
-          alignItems: { xs: "flex-start", md: "center" },
           justifyContent: "space-between",
+          alignItems: { xs: "flex-start", sm: "center" },
+          flexDirection: { xs: "column", sm: "row" },
           gap: 2,
         }}
       >
         <Box>
           <Typography
             variant="h6"
-            sx={{ fontWeight: 700, color: "#0f172a", mb: 0.5 }}
+            sx={{
+              fontWeight: 800,
+              color: "#0f172a",
+              letterSpacing: "-0.015em",
+              mb: 0.5,
+            }}
           >
             Live Geofenced Attendance Logs & S3 Media Verification
           </Typography>
@@ -144,54 +169,39 @@ export const AttendancePage: FC = () => {
             and Haversine distance calculations.
           </Typography>
         </Box>
-
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 1.5,
-            flexShrink: 0,
-          }}
-        >
+        <Box sx={{ display: "flex", gap: 1.5, flexShrink: 0 }}>
           <Button
             variant="outlined"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={() => refreshData()}
             size="small"
-            disabled={isLoading}
-            sx={{
-              borderColor: "#cbd5e1",
-              color: "#334155",
-              whiteSpace: "nowrap",
+            startIcon={<RefreshRoundedIcon />}
+            onClick={() => {
+              setIsLoading(true);
+              loadData().then(() =>
+                notify("Attendance logs updated", "success"),
+              );
             }}
+            disabled={isLoading}
           >
             {isLoading ? "Syncing..." : "Sync"}
           </Button>
-
           <Button
             variant="outlined"
-            startIcon={<FileDownloadRoundedIcon />}
-            onClick={handleExportCSV}
             size="small"
-            disabled={filteredRecords.length === 0}
-            sx={{
-              borderColor: "#cbd5e1",
-              color: "#334155",
-              whiteSpace: "nowrap",
-            }}
+            startIcon={<FileDownloadRoundedIcon />}
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
           >
             Export Logs CSV
           </Button>
         </Box>
       </Paper>
 
-      {/* Backend Synchronization Alert */}
       {attendanceError && (
         <Alert
           severity="error"
-          sx={{ borderRadius: 2 }}
+          sx={{ borderRadius: 3, border: "1px solid #fecaca" }}
           action={
-            <Button color="inherit" size="small" onClick={() => refreshData()}>
+            <Button color="inherit" size="small" onClick={() => loadData()}>
               Retry
             </Button>
           }
@@ -200,7 +210,7 @@ export const AttendancePage: FC = () => {
         </Alert>
       )}
 
-      {/* Metric Cards Summary Row */}
+      {/* Metrics Row */}
       <Box
         sx={{
           display: "grid",
@@ -209,21 +219,35 @@ export const AttendancePage: FC = () => {
             sm: "repeat(2, 1fr)",
             md: "repeat(4, 1fr)",
           },
-          gap: 2,
+          gap: 2.5,
         }}
       >
-        <Paper elevation={1} sx={{ p: 2, borderRadius: 2 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: 3.5,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
+        >
           <Typography
             variant="caption"
-            sx={{ color: "#64748b", fontWeight: 600 }}
+            sx={{ color: "#64748b", fontWeight: 700, letterSpacing: "0.04em" }}
           >
             TOTAL CHECK-INS
           </Typography>
           <Typography
             variant="h4"
-            sx={{ fontWeight: 700, color: "#0f172a", mt: 0.5 }}
+            sx={{
+              fontWeight: 800,
+              my: 0.5,
+              color: "#0f172a",
+              letterSpacing: "-0.02em",
+            }}
           >
-            {totalLogs}
+            {total}
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
             Across all branches
@@ -231,41 +255,65 @@ export const AttendancePage: FC = () => {
         </Paper>
 
         <Paper
-          elevation={1}
-          sx={{ p: 2, borderRadius: 2, borderLeft: "4px solid #10b981" }}
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: 3.5,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderLeft: "4px solid #10b981",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
         >
           <Typography
             variant="caption"
-            sx={{ color: "#047857", fontWeight: 600 }}
+            sx={{ color: "#047857", fontWeight: 700, letterSpacing: "0.04em" }}
           >
             ON-SITE COMPLIANT (≤ 100m)
           </Typography>
           <Typography
             variant="h4"
-            sx={{ fontWeight: 700, color: "#047857", mt: 0.5 }}
+            sx={{
+              fontWeight: 800,
+              my: 0.5,
+              color: "#047857",
+              letterSpacing: "-0.02em",
+            }}
           >
-            {compliantLogs}
+            {compliant}
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
-            Within authorized geofence radius
+            Within authorized geofence
           </Typography>
         </Paper>
 
         <Paper
-          elevation={1}
-          sx={{ p: 2, borderRadius: 2, borderLeft: "4px solid #f59e0b" }}
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: 3.5,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderLeft: "4px solid #f59e0b",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
         >
           <Typography
             variant="caption"
-            sx={{ color: "#b45309", fontWeight: 600 }}
+            sx={{ color: "#b45309", fontWeight: 700, letterSpacing: "0.04em" }}
           >
             NEAR BOUNDARY (100m - 250m)
           </Typography>
           <Typography
             variant="h4"
-            sx={{ fontWeight: 700, color: "#b45309", mt: 0.5 }}
+            sx={{
+              fontWeight: 800,
+              my: 0.5,
+              color: "#b45309",
+              letterSpacing: "-0.02em",
+            }}
           >
-            {nearLogs}
+            {near}
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
             Proximity alert flagged
@@ -273,20 +321,32 @@ export const AttendancePage: FC = () => {
         </Paper>
 
         <Paper
-          elevation={1}
-          sx={{ p: 2, borderRadius: 2, borderLeft: "4px solid #ef4444" }}
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: 3.5,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderLeft: "4px solid #ef4444",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
         >
           <Typography
             variant="caption"
-            sx={{ color: "#b91c1c", fontWeight: 600 }}
+            sx={{ color: "#b91c1c", fontWeight: 700, letterSpacing: "0.04em" }}
           >
             OUT OF BOUNDS (&gt; 250m)
           </Typography>
           <Typography
             variant="h4"
-            sx={{ fontWeight: 700, color: "#b91c1c", mt: 0.5 }}
+            sx={{
+              fontWeight: 800,
+              my: 0.5,
+              color: "#b91c1c",
+              letterSpacing: "-0.02em",
+            }}
           >
-            {outOfBoundsLogs}
+            {outOfBounds}
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
             Geofence violation detected
@@ -294,24 +354,30 @@ export const AttendancePage: FC = () => {
         </Paper>
       </Box>
 
-      {/* Filter Toolbar */}
+      {/* Filter Row */}
       <Paper
-        elevation={1}
+        elevation={0}
         sx={{
           p: 2,
+          borderRadius: 3.5,
+          bgcolor: "#ffffff",
+          border: "1px solid #e2e8f0",
           display: "flex",
-          flexDirection: { xs: "column", sm: "row" },
-          alignItems: "center",
           gap: 1.5,
           flexWrap: "wrap",
+          alignItems: "center",
         }}
       >
         <TextField
           placeholder="Filter by employee name, email, or store..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
           size="small"
-          sx={{ minWidth: 260, flex: 1 }}
+          sx={{
+            flex: 1,
+            minWidth: 240,
+            "& .MuiOutlinedInput-root": { bgcolor: "#f8fafc", borderRadius: 2 },
+          }}
           slotProps={{
             input: {
               startAdornment: (
@@ -325,8 +391,13 @@ export const AttendancePage: FC = () => {
             },
           }}
         />
-
-        <FormControl size="small" sx={{ minWidth: 170 }}>
+        <FormControl
+          size="small"
+          sx={{
+            minWidth: 170,
+            "& .MuiOutlinedInput-root": { bgcolor: "#f8fafc", borderRadius: 2 },
+          }}
+        >
           <InputLabel>Branch Location</InputLabel>
           <Select
             value={storeFilter}
@@ -341,74 +412,79 @@ export const AttendancePage: FC = () => {
             ))}
           </Select>
         </FormControl>
-
-        <FormControl size="small" sx={{ minWidth: 180 }}>
+        <FormControl
+          size="small"
+          sx={{
+            minWidth: 170,
+            "& .MuiOutlinedInput-root": { bgcolor: "#f8fafc", borderRadius: 2 },
+          }}
+        >
           <InputLabel>Geofence Rule</InputLabel>
           <Select
-            value={complianceFilter}
+            value={ruleFilter}
             label="Geofence Rule"
-            onChange={(e) => setComplianceFilter(e.target.value)}
+            onChange={(e) => setRuleFilter(e.target.value)}
           >
             <MenuItem value="ALL">All Check-ins</MenuItem>
             <MenuItem value="COMPLIANT">Within 100m (Valid)</MenuItem>
-            <MenuItem value="OUT_OF_BOUNDS">Outside 100m (Flagged)</MenuItem>
+            <MenuItem value="OUT">Outside 100m (Flagged)</MenuItem>
           </Select>
         </FormControl>
       </Paper>
 
-      {/* Attendance Records Table */}
-      <Paper elevation={1} sx={{ overflow: "hidden" }}>
+      {/* Table */}
+      <Paper
+        elevation={0}
+        sx={{
+          overflow: "hidden",
+          borderRadius: 3.5,
+          border: "1px solid #e2e8f0",
+          bgcolor: "#ffffff",
+        }}
+      >
         <TableContainer sx={{ maxHeight: 600 }}>
           <Table stickyHeader>
             <TableHead>
               <TableRow>
-                <TableCell>Employee</TableCell>
-                <TableCell>Workplace Branch</TableCell>
-                <TableCell>Clock-in Time</TableCell>
-                <TableCell>Distance to Store</TableCell>
-                <TableCell>Geofence Status</TableCell>
-                <TableCell align="right">Verification Asset</TableCell>
+                <TableCell>EMPLOYEE</TableCell>
+                <TableCell>WORKPLACE BRANCH</TableCell>
+                <TableCell>CLOCK-IN TIME</TableCell>
+                <TableCell>DISTANCE TO STORE</TableCell>
+                <TableCell>GEOFENCE STATUS</TableCell>
+                <TableCell align="right">VERIFICATION ASSET</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
-                    <CircularProgress
-                      size={28}
-                      sx={{ color: "#2563eb", mb: 1 }}
-                    />
+                    <CircularProgress size={28} sx={{ mb: 1.5 }} />
                     <Typography variant="body2" sx={{ color: "#64748b" }}>
-                      Querying live attendance records from backend...
+                      Loading attendance records from live database...
                     </Typography>
                   </TableCell>
                 </TableRow>
-              ) : filteredRecords.length === 0 ? (
+              ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
                     <Typography
                       variant="body2"
-                      sx={{ color: "#64748b", mb: 1 }}
+                      sx={{ color: "#64748b", mb: 0.5, fontWeight: 600 }}
                     >
                       No attendance check-ins found in the live database yet.
                     </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{ color: "#94a3b8", display: "block" }}
-                    >
+                    <Typography variant="caption" sx={{ color: "#94a3b8" }}>
                       All demo data has been removed. Check-in events recorded
                       by employees will appear here in real-time.
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredRecords.map((record) => {
-                  const distNum = Number(record.distance);
-                  const isCompliant = distNum <= 100;
-                  const isNear = distNum > 100 && distNum <= 250;
-                  const formattedImg = formatAttendanceImageUrl(
-                    record.imageUrl,
-                  );
+                filtered.map((record) => {
+                  const dist = Number(record.distance);
+                  const isCompliant = dist <= 100;
+                  const isNear = dist > 100 && dist <= 250;
+                  const img = formatAttendanceImageUrl(record.imageUrl);
 
                   return (
                     <TableRow key={record._id} hover>
@@ -421,22 +497,21 @@ export const AttendancePage: FC = () => {
                           }}
                         >
                           <Avatar
-                            src={formattedImg}
-                            alt={record.userName}
-                            onClick={() => setInspectingRecord(record)}
+                            src={img}
                             sx={{
-                              width: 36,
-                              height: 36,
+                              width: 38,
+                              height: 38,
                               cursor: "pointer",
-                              border: "1px solid #cbd5e1",
+                              border: "1px solid #e2e8f0",
                             }}
+                            onClick={() => setInspectingRecord(record)}
                           >
                             {(record.userName || "U").charAt(0)}
                           </Avatar>
                           <Box>
                             <Typography
                               variant="subtitle2"
-                              sx={{ fontWeight: 600, color: "#0f172a" }}
+                              sx={{ fontWeight: 700, color: "#0f172a" }}
                             >
                               {record.userName}
                             </Typography>
@@ -444,97 +519,55 @@ export const AttendancePage: FC = () => {
                               variant="caption"
                               sx={{ color: "#64748b" }}
                             >
-                              {record.userEmail || `User ID: ${record.userId}`}
+                              {record.userEmail || record.userId}
                             </Typography>
                           </Box>
                         </Box>
                       </TableCell>
-
                       <TableCell>
                         <Typography
                           variant="body2"
-                          sx={{ fontWeight: 500, color: "#334155" }}
+                          sx={{ fontWeight: 600, color: "#334155" }}
                         >
                           {record.storeName}
                         </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "#94a3b8",
-                            fontSize: "0.72rem",
-                            fontFamily: '"JetBrains Mono", monospace',
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
+                        <Typography variant="caption" sx={{ color: "#94a3b8" }}>
                           {record.latitude}, {record.longitude}
                         </Typography>
                       </TableCell>
-
                       <TableCell>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 500,
-                            color: "#334155",
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {record.createdAt
-                            ? new Date(record.createdAt).toLocaleDateString(
-                                [],
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                },
-                              )
+                            ? new Date(record.createdAt).toLocaleDateString()
                             : "N/A"}
                         </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "#64748b",
-                            fontFamily: '"JetBrains Mono", monospace',
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
+                        <Typography variant="caption" sx={{ color: "#64748b" }}>
                           {record.createdAt
                             ? new Date(record.createdAt).toLocaleTimeString(
                                 [],
-                                {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                  second: "2-digit",
-                                },
+                                { hour: "2-digit", minute: "2-digit" },
                               )
                             : ""}
                         </Typography>
                       </TableCell>
-
                       <TableCell>
                         <Typography
                           variant="body2"
                           sx={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
+                            fontWeight: 800,
                             color: isCompliant
                               ? "#15803d"
                               : isNear
                                 ? "#b45309"
                                 : "#dc2626",
-                            fontFamily: '"JetBrains Mono", monospace',
-                            fontVariantNumeric: "tabular-nums",
                           }}
                         >
                           {record.distance} m
                         </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "#94a3b8", fontSize: "0.72rem" }}
-                        >
+                        <Typography variant="caption" sx={{ color: "#94a3b8" }}>
                           Haversine distance
                         </Typography>
                       </TableCell>
-
                       <TableCell>
                         <Box
                           sx={{
@@ -555,59 +588,37 @@ export const AttendancePage: FC = () => {
                               }}
                             />
                           )}
-                          <Box>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontWeight: 600,
-                                fontSize: "0.825rem",
-                                color: isCompliant
-                                  ? "#15803d"
-                                  : isNear
-                                    ? "#b45309"
-                                    : "#dc2626",
-                              }}
-                            >
-                              {isCompliant
-                                ? "On-Site (<100m)"
-                                : isNear
-                                  ? "Near Boundary"
-                                  : "Outside Perimeter"}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              sx={{ color: "#64748b", fontSize: "0.72rem" }}
-                            >
-                              {isCompliant
-                                ? "Verified in store"
-                                : `${record.distance}m from anchor`}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </TableCell>
-
-                      <TableCell align="right">
-                        <Tooltip title="Inspect verification photo & metadata">
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            startIcon={
-                              <PhotoCameraRoundedIcon sx={{ fontSize: 14 }} />
-                            }
-                            onClick={() => setInspectingRecord(record)}
+                          <Typography
+                            variant="body2"
                             sx={{
-                              fontSize: "0.75rem",
-                              borderColor: "#e2e8f0",
-                              color: "#334155",
-                              "&:hover": {
-                                borderColor: "#cbd5e1",
-                                bgcolor: "#f8fafc",
-                              },
+                              fontWeight: 700,
+                              color: isCompliant
+                                ? "#15803d"
+                                : isNear
+                                  ? "#b45309"
+                                  : "#dc2626",
                             }}
                           >
-                            View Photo
-                          </Button>
-                        </Tooltip>
+                            {isCompliant
+                              ? "On-Site (≤100m)"
+                              : isNear
+                                ? "Near Boundary"
+                                : "Outside Perimeter"}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={
+                            <PhotoCameraRoundedIcon fontSize="small" />
+                          }
+                          onClick={() => setInspectingRecord(record)}
+                          sx={{ borderRadius: 2 }}
+                        >
+                          View Photo
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -618,7 +629,6 @@ export const AttendancePage: FC = () => {
         </TableContainer>
       </Paper>
 
-      {/* Verification Photo Modal */}
       <VerificationPhotoModal
         record={inspectingRecord}
         onClose={() => setInspectingRecord(null)}

@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 export interface Store {
   _id: string;
   name: string;
@@ -34,7 +29,7 @@ export interface AttendanceRecord {
   storeName?: string;
   latitude: string;
   longitude: string;
-  distance: string | number; // Distance in meters computed by Haversine formula
+  distance: string | number;
   imageUrl: string;
   createdAt: string;
   updatedAt?: string;
@@ -43,10 +38,6 @@ export interface AttendanceRecord {
 export interface PresignedUploadResponse {
   uploadUrl: string;
   key: string;
-}
-
-export interface DistanceResponse {
-  distance: number;
 }
 
 export interface BackendHealthState {
@@ -67,13 +58,3 @@ export interface AuthUser {
   storeId?: string;
   storeName?: string;
 }
-
-export interface AuthSession {
-  authToken: string;
-  refreshToken: string;
-  user: AuthUser;
-  expiresAt: number;
-}
-
-export type ViewTab =
-  "overview" | "employees" | "stores" | "attendance" | "analytics";

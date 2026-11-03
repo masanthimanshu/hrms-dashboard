@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect, type FC, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -31,7 +26,6 @@ import {
   Drawer,
   Divider,
   Alert,
-  Tooltip,
   CircularProgress,
 } from "@mui/material";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -42,39 +36,49 @@ import PauseCircleFilledRoundedIcon from "@mui/icons-material/PauseCircleFilledR
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
-import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import PhotoCameraRoundedIcon from "@mui/icons-material/PhotoCameraRounded";
-import { useHrms } from "../context/HrmsContext";
-import type { User, AttendanceRecord } from "../types";
+import type { User, Store, AttendanceRecord } from "../types";
 import { VerificationPhotoModal } from "../components/VerificationPhotoModal";
+import { apiService, hasConfiguredAccountId } from "../services/api";
+import { notify } from "../services/notify";
 
 export const EmployeesPage: FC = () => {
   const navigate = useNavigate();
-  const {
-    users,
-    stores,
-    isLoading,
-    usersError,
-    hasAccountId,
-    createUser,
-    toggleUserValidation,
-    getAttendanceForUser,
-  } = useHrms();
+  const [users, setUsers] = useState<User[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const hasAccountId = hasConfiguredAccountId;
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const loadData = async () => {
+    try {
+      const [userRes, storeRes] = await Promise.all([
+        apiService.getUsers(),
+        apiService.getStores(),
+      ]);
+      setUsers(userRes.data || []);
+      setUsersError(userRes.error || null);
+      setStores(storeRes.data || []);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [togglingUid, setTogglingUid] = useState<string | null>(null);
 
-  // Employee-specific live attendance logs
   const [userAttendance, setUserAttendance] = useState<AttendanceRecord[]>([]);
   const [loadingUserAtt, setLoadingUserAtt] = useState(false);
   const [inspectingRecord, setInspectingRecord] =
     useState<AttendanceRecord | null>(null);
 
-  // New staff modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -82,18 +86,21 @@ export const EmployeesPage: FC = () => {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Fetch employee-specific logs when selectedUser changes
   useEffect(() => {
-    if (!selectedUser) {
-      setUserAttendance([]);
-      return;
-    }
-
+    if (!selectedUser) return;
     let active = true;
-    setLoadingUserAtt(true);
-    getAttendanceForUser(selectedUser._id)
-      .then((records) => {
-        if (active) setUserAttendance(records);
+    apiService
+      .getLiveAttendance(selectedUser._id)
+      .then((res) => {
+        if (!active) return;
+        const s = stores.find((st) => st._id === selectedUser.storeId);
+        const enriched = (res.data || []).map((log) => ({
+          ...log,
+          userName: selectedUser.name,
+          userEmail: selectedUser.email,
+          storeName: s?.name || log.storeName || "Assigned Branch",
+        }));
+        setUserAttendance(enriched);
       })
       .catch(() => {
         if (active) setUserAttendance([]);
@@ -101,130 +108,97 @@ export const EmployeesPage: FC = () => {
       .finally(() => {
         if (active) setLoadingUserAtt(false);
       });
-
     return () => {
       active = false;
     };
-  }, [selectedUser, getAttendanceForUser]);
+  }, [selectedUser, stores]);
 
-  // Sync newStoreId if stores load
-  useEffect(() => {
-    if (!newStoreId && stores.length > 0) {
-      setNewStoreId(stores[0]._id);
-    }
-  }, [stores, newStoreId]);
+  const getStoreName = (id: string) =>
+    stores.find((s) => s._id === id)?.name || "Unassigned";
 
-  // Filtered live users
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      (user.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.email || "").toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStore = storeFilter === "ALL" || user.storeId === storeFilter;
-    const matchesStatus =
+  const filtered = users.filter((u) => {
+    const s = search.toLowerCase();
+    const matchSearch =
+      u.name.toLowerCase().includes(s) || u.email.toLowerCase().includes(s);
+    const matchStore = storeFilter === "ALL" || u.storeId === storeFilter;
+    const matchStatus =
       statusFilter === "ALL" ||
-      (statusFilter === "ACTIVE" && user.isValid) ||
-      (statusFilter === "SUSPENDED" && !user.isValid);
-
-    return matchesSearch && matchesStore && matchesStatus;
+      (statusFilter === "ACTIVE" ? u.isValid : !u.isValid);
+    return matchSearch && matchStore && matchStatus;
   });
 
-  const getStoreName = (storeId: string) => {
-    const store = stores.find((s) => s._id === storeId);
-    return store ? store.name : "Unassigned Location";
-  };
-
-  const handleToggleStatus = async (uid: string) => {
+  const handleToggle = async (uid: string) => {
     setTogglingUid(uid);
     try {
-      await toggleUserValidation(uid);
+      const res = await apiService.toggleUserValidation(uid);
+      if (res.success) {
+        notify("Account status updated", "success");
+        await loadData();
+        if (selectedUser && selectedUser._id === uid) {
+          setSelectedUser((prev) =>
+            prev ? { ...prev, isValid: !prev.isValid } : null,
+          );
+        }
+      } else {
+        notify(res.message || "Failed to update status", "error");
+      }
     } finally {
       setTogglingUid(null);
     }
   };
 
-  const handleFormSubmit = async (e: FormEvent) => {
+  const handleCreateSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) {
-      setFormError("Please enter employee full name");
+    if (!newName.trim() || !newEmail.trim() || !newStoreId) {
+      setFormError("All fields are required");
       return;
     }
-    if (!newEmail.trim() || !newEmail.includes("@")) {
-      setFormError("Please enter a valid work email address");
-      return;
-    }
-    if (!newStoreId) {
-      setFormError("Please select a workplace location");
-      return;
-    }
-
     setFormSubmitting(true);
     setFormError(null);
-    try {
-      const res = await createUser({
-        name: newName.trim(),
-        email: newEmail.trim(),
-        storeId: newStoreId,
-      });
-      if (res.success) {
-        setNewName("");
-        setNewEmail("");
-        setCreateModalOpen(false);
-      } else {
-        setFormError(res.message || "Failed to onboard employee");
-      }
-    } catch (err) {
-      setFormError(
-        err instanceof Error
-          ? err.message
-          : "Error submitting onboarding request",
-      );
-    } finally {
-      setFormSubmitting(false);
+    const res = await apiService.createUser({
+      name: newName.trim(),
+      email: newEmail.trim(),
+      storeId: newStoreId,
+    });
+    setFormSubmitting(false);
+    if (res.success) {
+      notify("Staff member onboarded", "success");
+      setNewName("");
+      setNewEmail("");
+      setCreateModalOpen(false);
+      loadData();
+    } else {
+      notify(res.message || "Failed to onboard staff", "error");
+      setFormError(res.message || "Failed to onboard staff");
     }
   };
 
-  const handleExportCSV = () => {
-    const headers = [
-      "ID",
-      "Name",
-      "Email",
-      "Store ID",
-      "Store Name",
-      "Status",
-      "Joined Date",
-    ];
-    const rows = filteredUsers.map((u) => [
-      u._id,
-      `"${u.name}"`,
-      `"${u.email}"`,
-      u.storeId,
-      `"${getStoreName(u.storeId)}"`,
-      u.isValid ? "Active" : "Suspended",
-      u.createdAt ? new Date(u.createdAt).toISOString().split("T")[0] : "",
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
+  const exportCSV = () => {
+    const rows = [
+      ["ID", "Name", "Email", "Store", "Status", "Joined"].join(","),
+      ...filtered.map((u) =>
+        [
+          `"${u._id}"`,
+          `"${u.name}"`,
+          `"${u.email}"`,
+          `"${getStoreName(u.storeId)}"`,
+          u.isValid ? "Active" : "Suspended",
+          u.createdAt ? u.createdAt.slice(0, 10) : "",
+        ].join(","),
+      ),
+    ].join("\n");
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `hrms_live_staff_${new Date().toISOString().split("T")[0]}.csv`,
-    );
-    document.body.appendChild(link);
+    link.href = encodeURI("data:text/csv;charset=utf-8," + rows);
+    link.download = `staff_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
   };
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-      {/* Top Banner or Error Alert */}
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {usersError && (
         <Alert
           severity="error"
+          sx={{ borderRadius: 3, border: "1px solid #fecaca" }}
           action={
             <Button
               color="inherit"
@@ -234,40 +208,48 @@ export const EmployeesPage: FC = () => {
               Settings
             </Button>
           }
-          sx={{ borderRadius: 2 }}
         >
           {usersError}
         </Alert>
       )}
 
-      {/* Filter Toolbar */}
+      {/* Filter toolbar */}
       <Paper
-        elevation={1}
+        elevation={0}
         sx={{
           p: 2,
+          borderRadius: 3.5,
+          bgcolor: "#ffffff",
+          border: "1px solid #e2e8f0",
           display: "flex",
-          flexDirection: { xs: "column", md: "row" },
-          alignItems: { xs: "stretch", md: "center" },
+          gap: 1.5,
+          flexWrap: "wrap",
+          alignItems: "center",
           justifyContent: "space-between",
-          gap: 2,
         }}
       >
         <Box
           sx={{
             display: "flex",
-            flexDirection: { xs: "column", sm: "row" },
-            alignItems: "center",
             gap: 1.5,
-            flex: 1,
             flexWrap: "wrap",
+            flex: 1,
+            alignItems: "center",
           }}
         >
           <TextField
             placeholder="Search staff by name or email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             size="small"
-            sx={{ minWidth: { xs: "100%", sm: 260 } }}
+            sx={{
+              minWidth: 240,
+              flex: 1,
+              "& .MuiOutlinedInput-root": {
+                bgcolor: "#f8fafc",
+                borderRadius: 2,
+              },
+            }}
             slotProps={{
               input: {
                 startAdornment: (
@@ -281,10 +263,15 @@ export const EmployeesPage: FC = () => {
               },
             }}
           />
-
           <FormControl
             size="small"
-            sx={{ minWidth: 160, width: { xs: "100%", sm: "auto" } }}
+            sx={{
+              minWidth: 160,
+              "& .MuiOutlinedInput-root": {
+                bgcolor: "#f8fafc",
+                borderRadius: 2,
+              },
+            }}
           >
             <InputLabel>Location Filter</InputLabel>
             <Select
@@ -300,10 +287,15 @@ export const EmployeesPage: FC = () => {
               ))}
             </Select>
           </FormControl>
-
           <FormControl
             size="small"
-            sx={{ minWidth: 140, width: { xs: "100%", sm: "auto" } }}
+            sx={{
+              minWidth: 140,
+              "& .MuiOutlinedInput-root": {
+                bgcolor: "#f8fafc",
+                borderRadius: 2,
+              },
+            }}
           >
             <InputLabel>Account State</InputLabel>
             <Select
@@ -317,74 +309,44 @@ export const EmployeesPage: FC = () => {
             </Select>
           </FormControl>
         </Box>
-
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Box sx={{ display: "flex", gap: 1 }}>
           <Button
             variant="outlined"
-            startIcon={<FileDownloadRoundedIcon />}
-            onClick={handleExportCSV}
             size="small"
-            disabled={filteredUsers.length === 0}
-            sx={{
-              borderColor: "#cbd5e1",
-              color: "#334155",
-              "&:hover": { borderColor: "#94a3b8", bgcolor: "#f8fafc" },
-            }}
+            startIcon={<FileDownloadRoundedIcon />}
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
           >
             Export CSV
           </Button>
-
           <Button
             variant="contained"
-            color="primary"
+            size="small"
             startIcon={<PersonAddRoundedIcon />}
             onClick={() => setCreateModalOpen(true)}
-            size="small"
-            sx={{ bgcolor: "#0f172a" }}
           >
             Onboard Staff
           </Button>
         </Box>
       </Paper>
 
-      {/* Real-time Employee Table */}
-      <Paper elevation={1} sx={{ overflow: "hidden" }}>
-        <Box
-          sx={{
-            p: 2,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Typography
-              variant="subtitle1"
-              sx={{ fontWeight: 700, color: "#0f172a" }}
-            >
-              Live Staff Records
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: "#64748b", fontVariantNumeric: "tabular-nums" }}
-            >
-              ({filteredUsers.length} total from database)
-            </Typography>
-          </Box>
-          <Typography variant="caption" sx={{ color: "#94a3b8" }}>
-            Streaming directly from GET /account/auth/users
-          </Typography>
-        </Box>
-
-        <Divider />
-
+      {/* Staff Table */}
+      <Paper
+        elevation={0}
+        sx={{
+          overflow: "hidden",
+          borderRadius: 3.5,
+          border: "1px solid #e2e8f0",
+          bgcolor: "#ffffff",
+        }}
+      >
         <TableContainer sx={{ maxHeight: 600 }}>
           <Table stickyHeader>
             <TableHead>
               <TableRow>
                 <TableCell>Employee</TableCell>
                 <TableCell>Workplace Location</TableCell>
-                <TableCell>Activation Status (isValid)</TableCell>
+                <TableCell>Activation Status</TableCell>
                 <TableCell>Onboarded Date</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -393,353 +355,318 @@ export const EmployeesPage: FC = () => {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
-                    <CircularProgress
-                      size={28}
-                      sx={{ color: "#2563eb", mb: 1 }}
-                    />
+                    <CircularProgress size={28} sx={{ mb: 1.5 }} />
                     <Typography variant="body2" sx={{ color: "#64748b" }}>
-                      Querying live employee records from backend...
+                      Loading staff directory...
                     </Typography>
                   </TableCell>
                 </TableRow>
-              ) : filteredUsers.length === 0 ? (
+              ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
                     <Typography
                       variant="body2"
-                      sx={{ color: "#64748b", mb: 1 }}
+                      sx={{ color: "#64748b", mb: 1.5 }}
                     >
                       {!hasAccountId
-                        ? "Account ID not configured yet. Set your key in secrets to load live staff records."
+                        ? "Account ID not configured yet."
                         : "No employee records found in live database."}
                     </Typography>
-                    {!hasAccountId ? (
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => navigate("/settings")}
-                        startIcon={<KeyRoundedIcon />}
-                        sx={{ bgcolor: "#0f172a", mt: 1 }}
-                      >
-                        Enter Account Secret
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => setCreateModalOpen(true)}
-                        startIcon={<PersonAddRoundedIcon />}
-                        sx={{ bgcolor: "#0f172a", mt: 1 }}
-                      >
-                        Onboard First Employee
-                      </Button>
-                    )}
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={() =>
+                        hasAccountId
+                          ? setCreateModalOpen(true)
+                          : navigate("/settings")
+                      }
+                    >
+                      {hasAccountId
+                        ? "Onboard First Staff Member"
+                        : "Configure Settings"}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredUsers.map((user) => {
-                  const isToggling = togglingUid === user._id;
-                  const storeName = getStoreName(user.storeId);
-                  const joinedDate = user.createdAt
-                    ? new Date(user.createdAt).toLocaleDateString([], {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })
-                    : "N/A";
-
-                  return (
-                    <TableRow key={user._id} hover>
-                      <TableCell>
-                        <Box
+                filtered.map((user) => (
+                  <TableRow key={user._id} hover>
+                    <TableCell>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
+                      >
+                        <Avatar
                           sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
+                            width: 38,
+                            height: 38,
+                            background: user.isValid
+                              ? "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)"
+                              : "#cbd5e1",
+                            fontSize: "0.85rem",
+                            fontWeight: 700,
+                            color: "#fff",
                           }}
                         >
-                          <Avatar
-                            sx={{
-                              width: 36,
-                              height: 36,
-                              bgcolor: user.isValid ? "#0f172a" : "#cbd5e1",
-                              color: "#ffffff",
-                              fontSize: "0.85rem",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {(user.name || "U").charAt(0).toUpperCase()}
-                          </Avatar>
-                          <Box>
-                            <Typography
-                              variant="subtitle2"
-                              sx={{
-                                fontWeight: 600,
-                                color: "#0f172a",
-                                lineHeight: 1.2,
-                              }}
-                            >
-                              {user.name}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: "#64748b",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 0.5,
-                              }}
-                            >
-                              <EmailRoundedIcon
-                                sx={{ fontSize: 13, color: "#94a3b8" }}
-                              />
-                              {user.email}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </TableCell>
-
-                      <TableCell>
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          <StorefrontRoundedIcon
-                            sx={{ fontSize: 16, color: "#64748b" }}
-                          />
+                          {(user.name || "U").charAt(0).toUpperCase()}
+                        </Avatar>
+                        <Box>
                           <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 500, color: "#334155" }}
+                            variant="subtitle2"
+                            sx={{ fontWeight: 700, color: "#0f172a" }}
                           >
-                            {storeName}
+                            {user.name}
                           </Typography>
-                        </Box>
-                      </TableCell>
-
-                      <TableCell>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.75,
-                            }}
-                          >
-                            {user.isValid ? (
-                              <CheckCircleRoundedIcon
-                                sx={{ fontSize: 18, color: "#16a34a" }}
-                              />
-                            ) : (
-                              <PauseCircleFilledRoundedIcon
-                                sx={{ fontSize: 18, color: "#d97706" }}
-                              />
-                            )}
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontWeight: 600,
-                                color: user.isValid ? "#15803d" : "#b45309",
-                                fontSize: "0.825rem",
-                              }}
-                            >
-                              {user.isValid ? "Active" : "Suspended"}
-                            </Typography>
-                          </Box>
-
-                          <Tooltip
-                            title={
-                              user.isValid
-                                ? "Click to suspend employee access"
-                                : "Click to validate & activate account"
-                            }
-                          >
-                            <span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={isToggling}
-                                onClick={() => handleToggleStatus(user._id)}
-                                sx={{
-                                  py: 0.25,
-                                  px: 1,
-                                  fontSize: "0.72rem",
-                                  borderColor: user.isValid
-                                    ? "#fecaca"
-                                    : "#bbf7d0",
-                                  color: user.isValid ? "#dc2626" : "#16a34a",
-                                  "&:hover": {
-                                    bgcolor: user.isValid
-                                      ? "#fef2f2"
-                                      : "#f0fdf4",
-                                    borderColor: user.isValid
-                                      ? "#dc2626"
-                                      : "#16a34a",
-                                  },
-                                }}
-                              >
-                                {isToggling ? (
-                                  <CircularProgress size={12} />
-                                ) : user.isValid ? (
-                                  "Suspend"
-                                ) : (
-                                  "Activate"
-                                )}
-                              </Button>
-                            </span>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-
-                      <TableCell>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "#64748b",
-                            fontWeight: 500,
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
-                          {joinedDate}
-                        </Typography>
-                      </TableCell>
-
-                      <TableCell align="right">
-                        <Tooltip title="View staff profile">
-                          <IconButton
-                            size="small"
-                            onClick={() => setSelectedUser(user)}
+                          <Typography
+                            variant="caption"
                             sx={{
                               color: "#64748b",
-                              "&:hover": { color: "#0f172a" },
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
                             }}
                           >
-                            <VisibilityRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                            <EmailRoundedIcon
+                              sx={{ fontSize: 13, color: "#94a3b8" }}
+                            />
+                            {user.email}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <StorefrontRoundedIcon
+                          sx={{ fontSize: 16, color: "#64748b" }}
+                        />
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 600, color: "#334155" }}
+                        >
+                          {getStoreName(user.storeId)}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
+                      >
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.75,
+                          }}
+                        >
+                          {user.isValid ? (
+                            <CheckCircleRoundedIcon
+                              sx={{ fontSize: 18, color: "#16a34a" }}
+                            />
+                          ) : (
+                            <PauseCircleFilledRoundedIcon
+                              sx={{ fontSize: 18, color: "#d97706" }}
+                            />
+                          )}
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: 700,
+                              color: user.isValid ? "#15803d" : "#b45309",
+                              fontSize: "0.825rem",
+                            }}
+                          >
+                            {user.isValid ? "Active" : "Suspended"}
+                          </Typography>
+                        </Box>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={togglingUid === user._id}
+                          onClick={() => handleToggle(user._id)}
+                          sx={{
+                            py: 0.25,
+                            px: 1.2,
+                            fontSize: "0.72rem",
+                            borderRadius: 1.5,
+                            fontWeight: 700,
+                            borderColor: user.isValid ? "#fecaca" : "#bbf7d0",
+                            color: user.isValid ? "#dc2626" : "#16a34a",
+                            "&:hover": {
+                              bgcolor: user.isValid ? "#fef2f2" : "#f0fdf4",
+                              borderColor: user.isValid ? "#dc2626" : "#16a34a",
+                            },
+                          }}
+                        >
+                          {togglingUid === user._id ? (
+                            <CircularProgress size={12} />
+                          ) : user.isValid ? (
+                            "Suspend"
+                          ) : (
+                            "Activate"
+                          )}
+                        </Button>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "#64748b", fontWeight: 600 }}
+                      >
+                        {user.createdAt
+                          ? new Date(user.createdAt).toLocaleDateString()
+                          : "N/A"}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setLoadingUserAtt(true);
+                        }}
+                        sx={{
+                          color: "#64748b",
+                          "&:hover": { color: "#0f172a" },
+                        }}
+                      >
+                        <VisibilityRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
             </TableBody>
           </Table>
         </TableContainer>
       </Paper>
 
-      {/* Onboard New Employee Modal */}
+      {/* Onboard Dialog */}
       <Dialog
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         maxWidth="sm"
         fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+        slotProps={{ paper: { sx: { borderRadius: 4, p: 1 } } }}
       >
-        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
-          Onboard New Employee
+        <DialogTitle sx={{ fontWeight: 800, letterSpacing: "-0.015em" }}>
+          Onboard New Staff
         </DialogTitle>
-        <form onSubmit={handleFormSubmit}>
+        <form onSubmit={handleCreateSubmit}>
           <DialogContent
-            sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
           >
-            <Alert
-              severity="info"
-              sx={{
-                bgcolor: "#eff6ff",
-                color: "#1e40af",
-                border: "1px solid #bfdbfe",
-              }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                Direct Onboarding Dispatch via Resend
-              </Typography>
+            {formError && (
+              <Alert severity="error" sx={{ borderRadius: 2 }}>
+                {formError}
+              </Alert>
+            )}
+            <Box>
               <Typography
                 variant="caption"
-                sx={{ color: "#1e3a8a", display: "block", lineHeight: 1.4 }}
+                sx={{
+                  fontWeight: 600,
+                  color: "#334155",
+                  mb: 0.75,
+                  display: "block",
+                }}
               >
-                Submitting this form calls{" "}
-                <code>POST /account/auth/create</code> on the live backend. A
-                cryptographically secure random password will be generated and
-                dispatched directly to the employee's inbox.
+                Full Name
               </Typography>
-            </Alert>
-
-            {formError && <Alert severity="error">{formError}</Alert>}
-
-            <TextField
-              label="Full Name"
-              placeholder="e.g. Maya Lin"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              fullWidth
-              required
-            />
-
-            <TextField
-              label="Work Email Address"
-              type="email"
-              placeholder="e.g. maya.lin@company.com"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              fullWidth
-              required
-              helperText="The generated password will be delivered to this email."
-            />
-
-            <FormControl fullWidth required>
-              <InputLabel>Assigned Workplace Branch</InputLabel>
-              <Select
-                value={newStoreId}
-                label="Assigned Workplace Branch"
-                onChange={(e) => setNewStoreId(e.target.value)}
+              <TextField
+                placeholder="e.g. Maya Lin"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                fullWidth
+                required
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2,
+                  },
+                }}
+              />
+            </Box>
+            <Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 600,
+                  color: "#334155",
+                  mb: 0.75,
+                  display: "block",
+                }}
               >
-                {stores.length === 0 ? (
-                  <MenuItem value="" disabled>
-                    No stores registered yet. Please create a store first.
-                  </MenuItem>
-                ) : (
-                  stores.map((s) => (
+                Work Email Address
+              </Typography>
+              <TextField
+                placeholder="e.g. maya@scoobies.co.in"
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                fullWidth
+                required
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2,
+                  },
+                }}
+              />
+            </Box>
+            <Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 600,
+                  color: "#334155",
+                  mb: 0.75,
+                  display: "block",
+                }}
+              >
+                Assigned Workplace Branch
+              </Typography>
+              <FormControl
+                fullWidth
+                required
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2,
+                  },
+                }}
+              >
+                <Select
+                  value={newStoreId}
+                  onChange={(e) => setNewStoreId(e.target.value)}
+                >
+                  {stores.map((s) => (
                     <MenuItem key={s._id} value={s._id}>
                       {s.name} ({s.address})
                     </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
           </DialogContent>
-          <DialogActions sx={{ p: 2.5, pt: 1 }}>
+          <DialogActions sx={{ p: 2.5 }}>
             <Button onClick={() => setCreateModalOpen(false)} color="inherit">
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={formSubmitting || stores.length === 0}
-              startIcon={
-                formSubmitting ? (
-                  <CircularProgress size={16} />
-                ) : (
-                  <SendRoundedIcon />
-                )
-              }
-              sx={{ bgcolor: "#0f172a" }}
-            >
-              {formSubmitting ? "Dispatching..." : "Dispatch Onboarding"}
+            <Button type="submit" variant="contained" disabled={formSubmitting}>
+              {formSubmitting ? "Onboarding..." : "Onboard Staff"}
             </Button>
           </DialogActions>
         </form>
       </Dialog>
 
-      {/* Staff Detail Drawer */}
+      {/* Staff Details Drawer */}
       <Drawer
         anchor="right"
         open={Boolean(selectedUser)}
         onClose={() => setSelectedUser(null)}
-        slotProps={{ paper: { sx: { width: { xs: "100%", sm: 420 }, p: 3 } } }}
+        slotProps={{
+          paper: { sx: { width: { xs: "100%", sm: 420 }, p: 3.5 } },
+        }}
       >
         {selectedUser && (
           <Box
@@ -750,9 +677,13 @@ export const EmployeesPage: FC = () => {
                 sx={{
                   width: 56,
                   height: 56,
-                  bgcolor: selectedUser.isValid ? "#0f172a" : "#cbd5e1",
-                  fontSize: "1.25rem",
-                  fontWeight: 700,
+                  background: selectedUser.isValid
+                    ? "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)"
+                    : "#cbd5e1",
+                  fontSize: "1.3rem",
+                  fontWeight: 800,
+                  color: "#fff",
+                  boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
                 }}
               >
                 {(selectedUser.name || "U").charAt(0).toUpperCase()}
@@ -760,7 +691,11 @@ export const EmployeesPage: FC = () => {
               <Box>
                 <Typography
                   variant="h6"
-                  sx={{ fontWeight: 700, color: "#0f172a" }}
+                  sx={{
+                    fontWeight: 800,
+                    color: "#0f172a",
+                    letterSpacing: "-0.015em",
+                  }}
                 >
                   {selectedUser.name}
                 </Typography>
@@ -772,51 +707,25 @@ export const EmployeesPage: FC = () => {
 
             <Divider sx={{ my: 2 }} />
 
-            <Typography
-              variant="caption"
+            <Box
               sx={{
-                fontWeight: 700,
-                textTransform: "uppercase",
-                color: "#64748b",
-                letterSpacing: "0.04em",
-                mb: 1.5,
+                display: "flex",
+                flexDirection: "column",
+                gap: 1.5,
+                mb: 2.5,
               }}
             >
-              Employee Metadata
-            </Typography>
-
-            <Box
-              sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 3 }}
-            >
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography variant="body2" sx={{ color: "#64748b" }}>
-                  MongoDB ID:
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: "#0f172a",
-                    fontSize: "0.8rem",
-                    fontFamily: '"JetBrains Mono", monospace',
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {selectedUser._id}
-                </Typography>
-              </Box>
-
               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                 <Typography variant="body2" sx={{ color: "#64748b" }}>
                   Assigned Branch:
                 </Typography>
                 <Typography
                   variant="body2"
-                  sx={{ fontWeight: 600, color: "#0f172a" }}
+                  sx={{ fontWeight: 700, color: "#0f172a" }}
                 >
                   {getStoreName(selectedUser.storeId)}
                 </Typography>
               </Box>
-
               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                 <Typography variant="body2" sx={{ color: "#64748b" }}>
                   Account State:
@@ -831,17 +740,13 @@ export const EmployeesPage: FC = () => {
                   {selectedUser.isValid ? "Active & Validated" : "Suspended"}
                 </Typography>
               </Box>
-
               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                 <Typography variant="body2" sx={{ color: "#64748b" }}>
-                  Registered At:
+                  Registered:
                 </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ color: "#0f172a", fontVariantNumeric: "tabular-nums" }}
-                >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {selectedUser.createdAt
-                    ? new Date(selectedUser.createdAt).toLocaleString()
+                    ? new Date(selectedUser.createdAt).toLocaleDateString()
                     : "N/A"}
                 </Typography>
               </Box>
@@ -850,32 +755,29 @@ export const EmployeesPage: FC = () => {
             <Button
               variant="outlined"
               fullWidth
-              onClick={() => handleToggleStatus(selectedUser._id)}
+              onClick={() => handleToggle(selectedUser._id)}
               disabled={togglingUid === selectedUser._id}
               sx={{
-                mb: 3,
-                borderColor: selectedUser.isValid ? "#fecaca" : "#bbf7d0",
+                mb: 2.5,
                 color: selectedUser.isValid ? "#dc2626" : "#16a34a",
+                borderColor: selectedUser.isValid ? "#fecaca" : "#bbf7d0",
+                fontWeight: 700,
               }}
             >
-              {selectedUser.isValid
-                ? "Suspend Access"
-                : "Validate & Activate Account"}
+              {selectedUser.isValid ? "Suspend Access" : "Activate Account"}
             </Button>
-
-            <Divider sx={{ mb: 2 }} />
 
             <Typography
               variant="caption"
               sx={{
-                fontWeight: 700,
+                fontWeight: 800,
                 textTransform: "uppercase",
                 color: "#64748b",
                 letterSpacing: "0.04em",
                 mb: 1.5,
               }}
             >
-              Recent Attendance Check-ins (GET /account/admin/attendance/:uid)
+              Recent Check-ins
             </Typography>
 
             <Box
@@ -884,95 +786,78 @@ export const EmployeesPage: FC = () => {
                 overflowY: "auto",
                 display: "flex",
                 flexDirection: "column",
-                gap: 1.5,
+                gap: 1.25,
               }}
             >
               {loadingUserAtt ? (
-                <Box sx={{ py: 3, textAlign: "center" }}>
-                  <CircularProgress
-                    size={20}
-                    sx={{ color: "#2563eb", mb: 1 }}
-                  />
-                  <Typography
-                    variant="caption"
-                    sx={{ color: "#64748b", display: "block" }}
-                  >
-                    Querying employee check-in logs...
-                  </Typography>
-                </Box>
+                <CircularProgress size={20} sx={{ mx: "auto", my: 3 }} />
               ) : userAttendance.length === 0 ? (
-                <Typography variant="caption" sx={{ color: "#94a3b8" }}>
-                  No attendance records logged for this employee yet.
+                <Typography
+                  variant="caption"
+                  sx={{ color: "#94a3b8", textAlign: "center", py: 2 }}
+                >
+                  No attendance records logged yet.
                 </Typography>
               ) : (
-                userAttendance.map((log) => {
-                  const isWithin = Number(log.distance) <= 100;
-                  return (
+                userAttendance.map((log) => (
+                  <Box
+                    key={log._id}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2.5,
+                      bgcolor: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
                     <Box
-                      key={log._id}
                       sx={{
-                        p: 1.5,
-                        borderRadius: 2,
-                        bgcolor: "#f8fafc",
-                        border: "1px solid #e2e8f0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        mb: 0.5,
                       }}
                     >
-                      <Box
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, color: "#334155" }}
+                      >
+                        {new Date(log.createdAt).toLocaleString()}
+                      </Typography>
+                      <Typography
+                        variant="caption"
                         sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          mb: 0.5,
+                          fontWeight: 800,
+                          color:
+                            Number(log.distance) <= 100 ? "#16a34a" : "#d97706",
                         }}
                       >
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontWeight: 600,
-                            color: "#334155",
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
-                          {new Date(log.createdAt).toLocaleString()}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontWeight: 700,
-                            color: isWithin ? "#16a34a" : "#d97706",
-                            fontFamily: '"JetBrains Mono", monospace',
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
-                          {log.distance}m from store
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Typography variant="caption" sx={{ color: "#64748b" }}>
-                          Coords: {log.latitude}, {log.longitude}
-                        </Typography>
-                        {log.imageUrl && (
-                          <Button
-                            size="small"
-                            variant="text"
-                            startIcon={
-                              <PhotoCameraRoundedIcon sx={{ fontSize: 13 }} />
-                            }
-                            onClick={() => setInspectingRecord(log)}
-                            sx={{ fontSize: "0.7rem", p: 0.25 }}
-                          >
-                            Photo
-                          </Button>
-                        )}
-                      </Box>
+                        {log.distance}m
+                      </Typography>
                     </Box>
-                  );
-                })
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Typography variant="caption" sx={{ color: "#94a3b8" }}>
+                        {log.latitude}, {log.longitude}
+                      </Typography>
+                      {log.imageUrl && (
+                        <Button
+                          size="small"
+                          startIcon={
+                            <PhotoCameraRoundedIcon sx={{ fontSize: 13 }} />
+                          }
+                          onClick={() => setInspectingRecord(log)}
+                          sx={{ fontSize: "0.7rem", p: 0.25 }}
+                        >
+                          View Photo
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
+                ))
               )}
             </Box>
 
@@ -980,15 +865,14 @@ export const EmployeesPage: FC = () => {
               variant="contained"
               fullWidth
               onClick={() => setSelectedUser(null)}
-              sx={{ mt: 2, bgcolor: "#0f172a" }}
+              sx={{ mt: 2.5 }}
             >
-              Close Details
+              Close
             </Button>
           </Box>
         )}
       </Drawer>
 
-      {/* Verification Photo Modal */}
       <VerificationPhotoModal
         record={inspectingRecord}
         onClose={() => setInspectingRecord(null)}

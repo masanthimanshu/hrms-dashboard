@@ -1,15 +1,15 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  Outlet,
+} from "react-router-dom";
 import { ThemeProvider, CssBaseline, Snackbar, Alert } from "@mui/material";
 import { theme } from "./theme";
-import { HrmsProvider } from "./context/HrmsContext";
 import { Layout } from "./components/Layout";
-import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { EmployeesPage } from "./pages/EmployeesPage";
@@ -17,6 +17,18 @@ import { StoresPage } from "./pages/StoresPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { apiService } from "./services/api";
+import { subscribeNotification } from "./services/notify";
+
+function ProtectedRoute() {
+  const isAuth = apiService.isAuthenticated();
+  const location = useLocation();
+
+  if (!isAuth) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return <Outlet />;
+}
 
 export default function App() {
   const [snackbar, setSnackbar] = useState<{
@@ -29,43 +41,36 @@ export default function App() {
     severity: "info",
   });
 
-  const showNotification = (
-    message: string,
-    severity: "success" | "info" | "warning" | "error" = "success",
-  ) => {
-    setSnackbar({ open: true, message, severity });
-  };
+  useEffect(() => {
+    return subscribeNotification((message, severity) => {
+      setSnackbar({ open: true, message, severity });
+    });
+  }, []);
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <HrmsProvider notify={showNotification}>
-        <BrowserRouter>
-          <Routes>
-            {/* Public Login Route */}
-            <Route path="/login" element={<LoginPage />} />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
 
-            {/* Protected Application Routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/" element={<Layout />}>
-                <Route index element={<Navigate to="/overview" replace />} />
-                <Route path="overview" element={<OverviewPage />} />
-                <Route path="employees" element={<EmployeesPage />} />
-                <Route path="stores" element={<StoresPage />} />
-                <Route path="attendance" element={<AttendancePage />} />
-                <Route path="analytics" element={<AnalyticsPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-                <Route path="*" element={<Navigate to="/overview" replace />} />
-              </Route>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Navigate to="/overview" replace />} />
+              <Route path="overview" element={<OverviewPage />} />
+              <Route path="employees" element={<EmployeesPage />} />
+              <Route path="stores" element={<StoresPage />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/overview" replace />} />
             </Route>
+          </Route>
 
-            {/* Catch-all redirect to overview (will trigger ProtectedRoute if not logged in) */}
-            <Route path="*" element={<Navigate to="/overview" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </HrmsProvider>
+          <Route path="*" element={<Navigate to="/overview" replace />} />
+        </Routes>
+      </BrowserRouter>
 
-      {/* Global Toast Notification */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}

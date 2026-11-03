@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect, type FC, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
@@ -15,83 +10,50 @@ import {
   InputAdornment,
   IconButton,
   CircularProgress,
-  FormControlLabel,
-  Checkbox,
 } from "@mui/material";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
-import LockRoundedIcon from "@mui/icons-material/LockRounded";
-import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
-import { useHrms } from "../context/HrmsContext";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
+import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
+import { apiService } from "../services/api";
+import { notify } from "../services/notify";
 
 export const LoginPage: FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isAuthenticated } = useHrms();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Security brute-force limiter
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockoutSeconds, setLockoutSeconds] = useState(0);
-
-  // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (apiService.isAuthenticated()) {
       const from = (location.state as any)?.from?.pathname || "/overview";
       navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate, location]);
-
-  // Lockout countdown timer
-  useEffect(() => {
-    if (lockoutSeconds > 0) {
-      const timer = setInterval(() => {
-        setLockoutSeconds((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [lockoutSeconds]);
+  }, [navigate, location]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (lockoutSeconds > 0) return;
-
-    if (!email.trim() || !password) {
-      setErrorMsg("Please enter both your work email and password.");
-      return;
-    }
+    if (!email.trim() || !password) return;
 
     setLoading(true);
     setErrorMsg(null);
-
     try {
-      const res = await login(email.trim(), password);
-      if (res.success) {
-        setFailedAttempts(0);
+      const res = await apiService.login(email.trim(), password);
+      if (res.success && res.user) {
+        notify(`Welcome back, ${res.user.name}!`, "success");
         const from = (location.state as any)?.from?.pathname || "/overview";
         navigate(from, { replace: true });
       } else {
-        const nextAttempts = failedAttempts + 1;
-        setFailedAttempts(nextAttempts);
-        setErrorMsg(res.message || "Invalid email or password credentials.");
-
-        // Impose a 30s lockout after 3 consecutive failed attempts
-        if (nextAttempts >= 3) {
-          setLockoutSeconds(30);
-          setErrorMsg(
-            "Too many failed login attempts. Account temporarily locked for 30 seconds for security.",
-          );
-        }
+        setErrorMsg(res.message || "Invalid email or password");
       }
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Login failed");
+      setErrorMsg(err instanceof Error ? err.message : "Authentication failed");
     } finally {
       setLoading(false);
     }
@@ -101,72 +63,138 @@ export const LoginPage: FC = () => {
     <Box
       sx={{
         minHeight: "100vh",
-        bgcolor: "#0f172a",
+        bgcolor: "#090d16",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        p: 2,
-        backgroundImage:
-          "radial-gradient(circle at 50% 20%, rgba(37, 99, 235, 0.15), transparent 70%)",
+        p: { xs: 2, sm: 3 },
+        position: "relative",
+        overflow: "hidden",
+        backgroundImage: `
+          radial-gradient(ellipse 90% 60% at 50% -10%, rgba(37, 99, 235, 0.28), transparent 70%),
+          radial-gradient(ellipse 60% 40% at 85% 95%, rgba(14, 165, 233, 0.15), transparent 70%),
+          radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1px)
+        `,
+        backgroundSize: "100% 100%, 100% 100%, 24px 24px",
       }}
     >
+      {/* Ambient background light beam */}
+      <Box
+        sx={{
+          position: "absolute",
+          top: "10%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 500,
+          height: 250,
+          borderRadius: "50%",
+          background:
+            "radial-gradient(circle, rgba(59, 130, 246, 0.18) 0%, transparent 70%)",
+          filter: "blur(60px)",
+          pointerEvents: "none",
+        }}
+      />
+
       <Paper
-        elevation={4}
+        elevation={0}
         sx={{
           width: "100%",
-          maxWidth: 440,
-          p: { xs: 3, sm: 4 },
-          borderRadius: 3.5,
-          bgcolor: "#ffffff",
-          boxShadow:
-            "0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+          maxWidth: 420,
+          p: { xs: 3.5, sm: 4.5 },
+          borderRadius: 4,
+          bgcolor: "rgba(255, 255, 255, 0.98)",
+          backdropFilter: "blur(20px)",
+          boxShadow: `
+            0 25px 50px -12px rgba(0, 0, 0, 0.45),
+            0 0 0 1px rgba(255, 255, 255, 0.1),
+            0 1px 3px 0 rgba(0, 0, 0, 0.1)
+          `,
+          position: "relative",
+          zIndex: 1,
         }}
       >
-        {/* Brand Lockup */}
-        <Box sx={{ textAlign: "center", mb: 3 }}>
+        {/* Header / Brand */}
+        <Box sx={{ textAlign: "center", mb: 3.5 }}>
           <Box
             sx={{
-              width: 48,
-              height: 48,
-              borderRadius: 2.5,
-              bgcolor: "#0f172a",
-              color: "#ffffff",
               display: "inline-flex",
+              alignItems: "center",
+              gap: 0.75,
+              px: 1.5,
+              py: 0.4,
+              borderRadius: 20,
+              bgcolor: "rgba(37, 99, 235, 0.08)",
+              border: "1px solid rgba(37, 99, 235, 0.15)",
+              color: "#2563eb",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              mb: 2,
+            }}
+          >
+            <VerifiedUserOutlinedIcon sx={{ fontSize: 13 }} />
+            Scoobies HRMS
+          </Box>
+
+          <Box
+            sx={{
+              width: 52,
+              height: 52,
+              borderRadius: 3,
+              background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+              color: "#ffffff",
+              display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontWeight: 800,
-              fontSize: "1.4rem",
-              letterSpacing: "-0.03em",
-              mb: 1.5,
-              boxShadow: "0 4px 6px -1px rgba(15, 23, 42, 0.2)",
+              fontSize: "1.5rem",
+              mx: "auto",
+              mb: 1.75,
+              boxShadow:
+                "0 10px 20px -5px rgba(15, 23, 42, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
             }}
           >
             S
           </Box>
+
           <Typography
             variant="h5"
             sx={{
               fontWeight: 800,
               color: "#0f172a",
-              letterSpacing: "-0.02em",
+              letterSpacing: "-0.025em",
+              lineHeight: 1.2,
               mb: 0.5,
             }}
           >
             Scoobies Admin Portal
           </Typography>
-          <Typography variant="body2" sx={{ color: "#64748b" }}>
+          <Typography
+            variant="body2"
+            sx={{ color: "#64748b", fontSize: "0.85rem" }}
+          >
             Workforce Management & Geofenced Attendance
           </Typography>
         </Box>
 
         {errorMsg && (
-          <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }}>
+          <Alert
+            severity="error"
+            sx={{
+              mb: 2.5,
+              borderRadius: 2,
+              fontSize: "0.825rem",
+              alignItems: "center",
+              border: "1px solid #fecaca",
+            }}
+          >
             {errorMsg}
           </Alert>
         )}
 
         <form onSubmit={handleSubmit}>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.25 }}>
             <Box>
               <Typography
                 variant="caption"
@@ -175,6 +203,7 @@ export const LoginPage: FC = () => {
                   color: "#334155",
                   mb: 0.75,
                   display: "block",
+                  fontSize: "0.78rem",
                 }}
               >
                 Work Email Address
@@ -186,12 +215,33 @@ export const LoginPage: FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 fullWidth
                 required
-                disabled={loading || lockoutSeconds > 0}
+                disabled={loading}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2.25,
+                    transition: "all 0.15s ease",
+                    "& fieldset": { borderColor: "#e2e8f0" },
+                    "&:hover fieldset": { borderColor: "#cbd5e1" },
+                    "&.Mui-focused": {
+                      bgcolor: "#ffffff",
+                      "& fieldset": {
+                        borderColor: "#2563eb",
+                        borderWidth: 1.5,
+                      },
+                      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
+                    },
+                  },
+                  "& .MuiInputBase-input": {
+                    fontSize: "0.9rem",
+                    py: 1.3,
+                  },
+                }}
                 slotProps={{
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        <EmailRoundedIcon
+                        <MailOutlineRoundedIcon
                           fontSize="small"
                           sx={{ color: "#94a3b8" }}
                         />
@@ -203,27 +253,18 @@ export const LoginPage: FC = () => {
             </Box>
 
             <Box>
-              <Box
+              <Typography
+                variant="caption"
                 sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  fontWeight: 600,
+                  color: "#334155",
                   mb: 0.75,
+                  display: "block",
+                  fontSize: "0.78rem",
                 }}
               >
-                <Typography
-                  variant="caption"
-                  sx={{ fontWeight: 600, color: "#334155" }}
-                >
-                  Admin Password
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: "#64748b", fontSize: "0.72rem" }}
-                >
-                  Dual JWT Verified
-                </Typography>
-              </Box>
+                Admin Password
+              </Typography>
               <TextField
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••••••"
@@ -231,12 +272,33 @@ export const LoginPage: FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 fullWidth
                 required
-                disabled={loading || lockoutSeconds > 0}
+                disabled={loading}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#f8fafc",
+                    borderRadius: 2.25,
+                    transition: "all 0.15s ease",
+                    "& fieldset": { borderColor: "#e2e8f0" },
+                    "&:hover fieldset": { borderColor: "#cbd5e1" },
+                    "&.Mui-focused": {
+                      bgcolor: "#ffffff",
+                      "& fieldset": {
+                        borderColor: "#2563eb",
+                        borderWidth: 1.5,
+                      },
+                      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
+                    },
+                  },
+                  "& .MuiInputBase-input": {
+                    fontSize: "0.9rem",
+                    py: 1.3,
+                  },
+                }}
                 slotProps={{
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        <LockRoundedIcon
+                        <LockOutlinedIcon
                           fontSize="small"
                           sx={{ color: "#94a3b8" }}
                         />
@@ -271,51 +333,73 @@ export const LoginPage: FC = () => {
               />
             </Box>
 
-            <Box sx={{ display: "flex", alignItems: "center" }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    color="primary"
-                  />
-                }
-                label={
-                  <Typography
-                    variant="caption"
-                    sx={{ color: "#475569", fontWeight: 500 }}
-                  >
-                    Remember session on this device
-                  </Typography>
-                }
-              />
-            </Box>
-
             <Button
               type="submit"
               variant="contained"
               fullWidth
-              disabled={loading || lockoutSeconds > 0}
+              disabled={loading}
+              endIcon={
+                !loading && <ArrowForwardRoundedIcon sx={{ fontSize: 18 }} />
+              }
               sx={{
                 mt: 1,
-                py: 1.2,
-                bgcolor: "#0f172a",
-                fontSize: "0.9rem",
+                py: 1.35,
+                background: "linear-gradient(180deg, #1e293b 0%, #0f172a 100%)",
+                color: "#ffffff",
                 fontWeight: 700,
-                "&:hover": { bgcolor: "#1e293b" },
+                fontSize: "0.92rem",
+                borderRadius: 2.25,
+                boxShadow:
+                  "0 4px 12px rgba(15, 23, 42, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)",
+                transition: "all 0.15s ease",
+                "&:hover": {
+                  background:
+                    "linear-gradient(180deg, #334155 0%, #1e293b 100%)",
+                  boxShadow: "0 6px 16px rgba(15, 23, 42, 0.35)",
+                  transform: "translateY(-1px)",
+                },
+                "&:active": {
+                  transform: "translateY(0)",
+                },
               }}
             >
               {loading ? (
-                <CircularProgress size={20} sx={{ color: "#ffffff" }} />
-              ) : lockoutSeconds > 0 ? (
-                `Locked (${lockoutSeconds}s)`
+                <CircularProgress size={22} sx={{ color: "#ffffff" }} />
               ) : (
                 "Sign In to Dashboard"
               )}
             </Button>
           </Box>
         </form>
+
+        {/* Security badge footer */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+            mt: 3.5,
+            pt: 2.5,
+            borderTop: "1px solid #f1f5f9",
+          }}
+        >
+          <Box
+            sx={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              bgcolor: "#16a34a",
+              boxShadow: "0 0 6px #16a34a",
+            }}
+          />
+          <Typography
+            variant="caption"
+            sx={{ color: "#64748b", fontWeight: 500, fontSize: "0.72rem" }}
+          >
+            Dual JWT Verification · Haversine GPS Audited
+          </Typography>
+        </Box>
       </Paper>
     </Box>
   );

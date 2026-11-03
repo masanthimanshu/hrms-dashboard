@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import type { FC } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -24,7 +19,8 @@ import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import { useHrms } from "../context/HrmsContext";
+import { apiService } from "../services/api";
+import { notify } from "../services/notify";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -34,25 +30,28 @@ interface SidebarProps {
 export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { users, stores, currentUser, logout } = useHrms();
+  const currentUser = apiService.getCurrentUser();
+
+  const handleLogout = () => {
+    apiService.clearSession();
+    notify("Signed out successfully", "info");
+    navigate("/login");
+  };
 
   const navItems = [
     {
       path: "/overview",
-      alias: "/",
       label: "Overview",
       icon: <DashboardRoundedIcon fontSize="small" />,
     },
     {
       path: "/employees",
       label: "Staff Directory",
-      badge: users.length,
       icon: <PeopleAltRoundedIcon fontSize="small" />,
     },
     {
       path: "/stores",
       label: "Workplace Locations",
-      badge: stores.length,
       icon: <StorefrontRoundedIcon fontSize="small" />,
     },
     {
@@ -74,7 +73,7 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
     <Box
       component="aside"
       sx={{
-        width: collapsed ? 80 : 260,
+        width: collapsed ? 80 : 256,
         transition: "width 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         bgcolor: "#ffffff",
         borderRight: "1px solid #e2e8f0",
@@ -84,7 +83,6 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
         position: "sticky",
         top: 0,
         zIndex: 20,
-        userSelect: "none",
         flexShrink: 0,
       }}
     >
@@ -105,37 +103,38 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
             display: "flex",
             alignItems: "center",
             gap: 1.5,
-            overflow: "hidden",
             cursor: "pointer",
+            overflow: "hidden",
           }}
         >
           <Box
             sx={{
               width: 38,
               height: 38,
-              borderRadius: 2,
-              bgcolor: "#0f172a",
+              borderRadius: 2.25,
+              background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
               color: "#ffffff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontWeight: 800,
               fontSize: "1.15rem",
-              letterSpacing: "-0.03em",
               flexShrink: 0,
+              boxShadow:
+                "0 4px 10px -2px rgba(15, 23, 42, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
             }}
           >
             S
           </Box>
           {!collapsed && (
-            <Box sx={{ minWidth: 0 }}>
+            <Box>
               <Typography
-                variant="subtitle1"
+                variant="subtitle2"
                 sx={{
-                  fontWeight: 700,
+                  fontWeight: 800,
                   color: "#0f172a",
-                  lineHeight: 1.15,
-                  whiteSpace: "nowrap",
+                  letterSpacing: "-0.015em",
+                  lineHeight: 1.2,
                 }}
               >
                 Scoobies HRMS
@@ -144,13 +143,13 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                 variant="caption"
                 sx={{
                   color: "#64748b",
-                  fontWeight: 600,
-                  fontSize: "0.7rem",
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
                   letterSpacing: "0.04em",
                   textTransform: "uppercase",
                 }}
               >
-                Live Employer Portal
+                Enterprise Portal
               </Typography>
             </Box>
           )}
@@ -164,7 +163,6 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
             color: "#94a3b8",
             "&:hover": { color: "#0f172a", bgcolor: "#f1f5f9" },
           }}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
             <ChevronRightRoundedIcon fontSize="small" />
@@ -174,16 +172,14 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
         </IconButton>
       </Box>
 
-      {/* Navigation Menu (react-router-dom) */}
+      {/* Navigation */}
       <Box sx={{ p: 1.5, flex: 1, overflowY: "auto" }}>
         <List
           disablePadding
           sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}
         >
           {navItems.map((item) => {
-            const isActive =
-              currentPath === item.path ||
-              (item.alias && currentPath === item.alias);
+            const isActive = currentPath === item.path;
             return (
               <Tooltip
                 key={item.path}
@@ -194,16 +190,21 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                 <ListItemButton
                   onClick={() => navigate(item.path)}
                   sx={{
-                    borderRadius: 1.5,
+                    borderRadius: 2,
                     px: collapsed ? 1.5 : 2,
-                    py: 1.2,
+                    py: 1.1,
                     minHeight: 44,
-                    bgcolor: isActive ? "#f1f5f9" : "transparent",
-                    color: isActive ? "#0f172a" : "#475569",
-                    fontWeight: isActive ? 600 : 500,
+                    background: isActive
+                      ? "linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.02) 100%)"
+                      : "transparent",
+                    borderLeft: isActive
+                      ? "3px solid #2563eb"
+                      : "3px solid transparent",
+                    color: isActive ? "#0f172a" : "#64748b",
                     justifyContent: collapsed ? "center" : "flex-start",
+                    transition: "all 0.15s ease",
                     "&:hover": {
-                      bgcolor: isActive ? "#f1f5f9" : "#f8fafc",
+                      bgcolor: isActive ? "rgba(37, 99, 235, 0.1)" : "#f8fafc",
                       color: "#0f172a",
                     },
                   }}
@@ -211,43 +212,24 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                   <ListItemIcon
                     sx={{
                       minWidth: collapsed ? "auto" : 34,
-                      color: isActive ? "#2563eb" : "#64748b",
+                      color: isActive ? "#2563eb" : "#94a3b8",
                     }}
                   >
                     {item.icon}
                   </ListItemIcon>
                   {!collapsed && (
-                    <>
-                      <ListItemText
-                        primary={
-                          <Typography
-                            sx={{
-                              fontSize: "0.875rem",
-                              fontWeight: isActive ? 600 : 500,
-                            }}
-                          >
-                            {item.label}
-                          </Typography>
-                        }
-                      />
-                      {item.badge !== undefined && (
+                    <ListItemText
+                      primary={
                         <Typography
-                          variant="caption"
                           sx={{
-                            bgcolor: isActive ? "#e2e8f0" : "#f1f5f9",
-                            color: "#475569",
-                            px: 1,
-                            py: 0.25,
-                            borderRadius: 1,
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                            fontVariantNumeric: "tabular-nums",
+                            fontSize: "0.875rem",
+                            fontWeight: isActive ? 700 : 500,
                           }}
                         >
-                          {item.badge}
+                          {item.label}
                         </Typography>
-                      )}
-                    </>
+                      }
+                    />
                   )}
                 </ListItemButton>
               </Tooltip>
@@ -256,32 +238,18 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
         </List>
       </Box>
 
-      {/* Authenticated User & Secure Sign Out */}
+      {/* User profile & Sign out */}
       <Box sx={{ borderTop: "1px solid #f1f5f9", p: collapsed ? 1.5 : 2 }}>
         {collapsed ? (
-          <Tooltip
-            title={`Sign Out (${currentUser?.name || "Admin"})`}
-            placement="right"
-            arrow
-          >
+          <Tooltip title="Sign Out" placement="right">
             <IconButton
-              onClick={() => {
-                logout();
-                navigate("/login");
-              }}
+              onClick={handleLogout}
               sx={{
-                width: 44,
-                height: 44,
+                color: "#64748b",
                 mx: "auto",
                 display: "flex",
-                color: "#64748b",
-                borderRadius: 2,
-                "&:hover": {
-                  color: "#dc2626",
-                  bgcolor: "#fef2f2",
-                },
+                "&:hover": { color: "#dc2626", bgcolor: "#fef2f2" },
               }}
-              aria-label="Sign Out"
             >
               <LogoutRoundedIcon fontSize="small" />
             </IconButton>
@@ -292,8 +260,8 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              p: 1,
-              borderRadius: 2,
+              p: 1.2,
+              borderRadius: 2.5,
               bgcolor: "#f8fafc",
               border: "1px solid #f1f5f9",
             }}
@@ -310,10 +278,11 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                 sx={{
                   width: 34,
                   height: 34,
-                  bgcolor: "#0f172a",
-                  color: "#ffffff",
-                  fontSize: "0.85rem",
+                  background:
+                    "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+                  fontSize: "0.825rem",
                   fontWeight: 700,
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
                 }}
               >
                 {(currentUser?.name || "Admin").charAt(0).toUpperCase()}
@@ -322,10 +291,9 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                 <Typography
                   variant="body2"
                   sx={{
-                    fontWeight: 600,
+                    fontWeight: 700,
                     color: "#0f172a",
-                    fontSize: "0.825rem",
-                    lineHeight: 1.2,
+                    fontSize: "0.82rem",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -333,41 +301,39 @@ export const Sidebar: FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
                 >
                   {currentUser?.name || "Scoobies Admin"}
                 </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: "#16a34a",
-                    fontWeight: 600,
-                    fontSize: "0.7rem",
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  ● Active Session
-                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Box
+                    sx={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      bgcolor: "#16a34a",
+                      boxShadow: "0 0 6px #16a34a",
+                    }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "#16a34a",
+                      fontWeight: 600,
+                      fontSize: "0.68rem",
+                    }}
+                  >
+                    Active Session
+                  </Typography>
+                </Box>
               </Box>
             </Box>
-
-            <Tooltip title="Sign Out" arrow>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  logout();
-                  navigate("/login");
-                }}
-                sx={{
-                  color: "#94a3b8",
-                  borderRadius: 1.5,
-                  p: 0.75,
-                  "&:hover": {
-                    color: "#dc2626",
-                    bgcolor: "#fee2e2",
-                  },
-                }}
-                aria-label="Sign Out"
-              >
-                <LogoutRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <IconButton
+              size="small"
+              onClick={handleLogout}
+              sx={{
+                color: "#94a3b8",
+                "&:hover": { color: "#dc2626", bgcolor: "#fee2e2" },
+              }}
+            >
+              <LogoutRoundedIcon fontSize="small" />
+            </IconButton>
           </Box>
         )}
       </Box>
