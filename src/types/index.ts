@@ -63,7 +63,7 @@ export interface AuthUser {
   id?: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'MANAGER' | 'STAFF';
+  role: "ADMIN" | "MANAGER" | "STAFF";
   storeId?: string;
   storeName?: string;
 }
@@ -75,5 +75,5 @@ export interface AuthSession {
   expiresAt: number;
 }
 
-export type ViewTab = 'overview' | 'employees' | 'stores' | 'attendance' | 'analytics';
-
+export type ViewTab =
+  "overview" | "employees" | "stores" | "attendance" | "analytics";

@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { Navigate, useLocation, Outlet } from 'react-router-dom';
-import { Box, CircularProgress, Typography } from '@mui/material';
-import { useHrms } from '../context/HrmsContext';
+import type { FC } from "react";
+import { Navigate, useLocation, Outlet } from "react-router-dom";
+import { Box, CircularProgress, Typography } from "@mui/material";
+import { useHrms } from "../context/HrmsContext";
 
-export const ProtectedRoute: React.FC = () => {
+export const ProtectedRoute: FC = () => {
   const { isAuthenticated, isAuthChecking } = useHrms();
   const location = useLocation();
 
@@ -16,12 +16,12 @@ export const ProtectedRoute: React.FC = () => {
     return (
       <Box
         sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: '#f8fafc',
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          bgcolor: "#f8fafc",
           gap: 2,
         }}
       >
@@ -30,19 +30,22 @@ export const ProtectedRoute: React.FC = () => {
             width: 44,
             height: 44,
             borderRadius: 2,
-            bgcolor: '#0f172a',
-            color: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            bgcolor: "#0f172a",
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             fontWeight: 800,
-            fontSize: '1.2rem',
+            fontSize: "1.2rem",
           }}
         >
           S
         </Box>
-        <CircularProgress size={28} sx={{ color: '#0f172a' }} />
-        <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>
+        <CircularProgress size={28} sx={{ color: "#0f172a" }} />
+        <Typography
+          variant="caption"
+          sx={{ color: "#64748b", fontWeight: 600 }}
+        >
           Verifying security credentials...
         </Typography>
       </Box>

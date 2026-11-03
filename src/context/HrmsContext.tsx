@@ -3,9 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Store, User, AttendanceRecord, AuthUser, PresignedUploadResponse } from '../types';
-import { apiService } from '../services/api';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type FC,
+  type ReactNode,
+} from "react";
+import type {
+  Store,
+  User,
+  AttendanceRecord,
+  AuthUser,
+  PresignedUploadResponse,
+} from "../types";
+import { apiService } from "../services/api";
+import { hasConfiguredAccountId } from "../config/env";
 
 interface HrmsContextType {
   stores: Store[];
@@ -21,7 +36,10 @@ interface HrmsContextType {
   storesError: string | null;
   usersError: string | null;
   attendanceError: string | null;
-  login: (userOrEmail: string, pass: string) => Promise<{ success: boolean; message?: string }>;
+  login: (
+    userOrEmail: string,
+    pass: string,
+  ) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   refreshData: (silent?: boolean) => Promise<void>;
   createStore: (storeInput: {
@@ -35,14 +53,24 @@ interface HrmsContextType {
     email: string;
     storeId: string;
   }) => Promise<{ success: boolean; message?: string }>;
-  toggleUserValidation: (uid: string) => Promise<{ success: boolean; message?: string }>;
+  toggleUserValidation: (
+    uid: string,
+  ) => Promise<{ success: boolean; message?: string }>;
   getAttendanceForUser: (uid: string) => Promise<AttendanceRecord[]>;
   getAdminAttendance: (uid?: string) => Promise<AttendanceRecord[]>;
-  calculateDistance: (lat: string, lng: string) => Promise<{ distance?: number; error?: string }>;
-  requestPresignedUpload: (
-    desc?: string
-  ) => Promise<{ success: boolean; data?: PresignedUploadResponse; message?: string }>;
-  uploadBinaryToS3: (url: string, blob: Blob) => Promise<{ success: boolean; error?: string }>;
+  calculateDistance: (
+    lat: string,
+    lng: string,
+  ) => Promise<{ distance?: number; error?: string }>;
+  requestPresignedUpload: (desc?: string) => Promise<{
+    success: boolean;
+    data?: PresignedUploadResponse;
+    message?: string;
+  }>;
+  uploadBinaryToS3: (
+    url: string,
+    blob: Blob,
+  ) => Promise<{ success: boolean; error?: string }>;
   submitAttendance: (payload: {
     latitude: string;
     longitude: string;
@@ -55,19 +83,28 @@ interface HrmsContextType {
     distance?: string | number;
   }) => Promise<{ success: boolean; message?: string }>;
   getTodayAttendance: () => Promise<AttendanceRecord[]>;
-  showNotification: (message: string, severity?: 'success' | 'info' | 'warning' | 'error') => void;
+  showNotification: (
+    message: string,
+    severity?: "success" | "info" | "warning" | "error",
+  ) => void;
 }
 
 const HrmsContext = createContext<HrmsContextType | undefined>(undefined);
 
-export const HrmsProvider: React.FC<{
-  children: React.ReactNode;
-  notify: (msg: string, sev?: 'success' | 'info' | 'warning' | 'error') => void;
+export const HrmsProvider: FC<{
+  children: ReactNode;
+  notify: (msg: string, sev?: "success" | "info" | "warning" | "error") => void;
 }> = ({ children, notify }) => {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(apiService.getCurrentUser());
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(apiService.isAuthenticated());
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(
+    apiService.getCurrentUser(),
+  );
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
+    apiService.isAuthenticated(),
+  );
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [hasAccountId, setHasAccountId] = useState<boolean>(true);
+  const [hasAccountId, setHasAccountId] = useState<boolean>(
+    () => hasConfiguredAccountId,
+  );
 
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -87,14 +124,13 @@ export const HrmsProvider: React.FC<{
 
     async function checkStatusAndAuth() {
       try {
-        const statusRes = await fetch('/api/hrms/status');
-        if (statusRes.ok && mounted) {
-          const statusData = await statusRes.json();
-          if (typeof statusData.hasAccountId === 'boolean') {
-            setHasAccountId(statusData.hasAccountId);
+        const health = await apiService.testHealth();
+        if (mounted) {
+          if (health.storeHealth !== null) {
+            setHasAccountId(Boolean(health.storeHealth));
           }
-          if (typeof statusData.backendOnline === 'boolean') {
-            setBackendOnline(statusData.backendOnline);
+          if (health.rootHealth !== null) {
+            setBackendOnline(Boolean(health.rootHealth));
           }
         }
       } catch {
@@ -125,59 +161,70 @@ export const HrmsProvider: React.FC<{
     };
   }, []);
 
-  const refreshData = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true);
+  const refreshData = useCallback(
+    async (silent = false) => {
+      if (!silent) setIsLoading(true);
 
-    try {
-      const [storeRes, userRes, attRes] = await Promise.all([
-        apiService.getStores(),
-        apiService.getUsers(),
-        apiService.getLiveAttendance(),
-      ]);
+      try {
+        const [storeRes, userRes, attRes] = await Promise.all([
+          apiService.getStores(),
+          apiService.getUsers(),
+          apiService.getLiveAttendance(),
+        ]);
 
-      setStores(storeRes.data);
-      setStoresError(storeRes.error || null);
+        setStores(storeRes.data);
+        setStoresError(storeRes.error || null);
 
-      setUsers(userRes.data);
-      setUsersError(userRes.error || null);
+        setUsers(userRes.data);
+        setUsersError(userRes.error || null);
 
-      // Enrich attendance records with user & store names
-      const enrichedLogs: AttendanceRecord[] = attRes.data.map((log) => {
-        const user = userRes.data.find((u) => u._id === log.userId);
-        const store = user
-          ? storeRes.data.find((s) => s._id === user.storeId)
-          : undefined;
+        // Enrich attendance records with user & store names
+        const enrichedLogs: AttendanceRecord[] = attRes.data.map((log) => {
+          const user = userRes.data.find((u) => u._id === log.userId);
+          const store = user
+            ? storeRes.data.find((s) => s._id === user.storeId)
+            : undefined;
 
-        return {
-          ...log,
-          userName: log.userName || user?.name || `Staff (${log.userId?.slice(-6) || 'Unknown'})`,
-          userEmail: log.userEmail || user?.email || '',
-          storeId: log.storeId || user?.storeId || '',
-          storeName: log.storeName || store?.name || 'Assigned Branch',
-        };
-      });
+          return {
+            ...log,
+            userName:
+              log.userName ||
+              user?.name ||
+              `Staff (${log.userId?.slice(-6) || "Unknown"})`,
+            userEmail: log.userEmail || user?.email || "",
+            storeId: log.storeId || user?.storeId || "",
+            storeName: log.storeName || store?.name || "Assigned Branch",
+          };
+        });
 
-      setAttendance(enrichedLogs);
-      setAttendanceError(attRes.error || null);
+        setAttendance(enrichedLogs);
+        setAttendanceError(attRes.error || null);
 
-      setLastUpdated(new Date());
+        setLastUpdated(new Date());
 
-      if (!silent) {
-        if (storeRes.error || userRes.error) {
-          notify(storeRes.error || userRes.error || 'Live synchronization notice', 'warning');
-        } else {
-          notify('Live backend data synchronized successfully', 'success');
+        if (!silent) {
+          if (attRes.error || storeRes.error || userRes.error) {
+            notify(
+              attRes.error || storeRes.error || userRes.error || "Live synchronization notice",
+              "warning",
+            );
+          } else {
+            notify("Live backend data synchronized successfully", "success");
+          }
         }
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Failed to reach backend";
+        setStoresError(msg);
+        setUsersError(msg);
+        setAttendanceError(msg);
+        if (!silent) notify(msg, "error");
+      } finally {
+        if (!silent) setIsLoading(false);
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to reach backend';
-      setStoresError(msg);
-      setUsersError(msg);
-      if (!silent) notify(msg, 'error');
-    } finally {
-      if (!silent) setIsLoading(false);
-    }
-  }, [notify]);
+    },
+    [notify],
+  );
 
   // Load data when authenticated
   useEffect(() => {
@@ -190,7 +237,7 @@ export const HrmsProvider: React.FC<{
   useEffect(() => {
     if (!isAuthenticated) return;
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === "visible") {
         refreshData(true);
       }
     }, 20000);
@@ -198,11 +245,11 @@ export const HrmsProvider: React.FC<{
     const handleFocus = () => {
       refreshData(true);
     };
-    window.addEventListener('focus', handleFocus);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [isAuthenticated, refreshData]);
 
@@ -213,11 +260,14 @@ export const HrmsProvider: React.FC<{
       if (res.success && res.user) {
         setIsAuthenticated(true);
         setCurrentUser(res.user);
-        notify(`Welcome back, ${res.user.name || res.user.email}!`, 'success');
+        notify(`Welcome back, ${res.user.name || res.user.email}!`, "success");
         await refreshData(true);
         return { success: true };
       } else {
-        notify(res.message || 'Login failed. Please check credentials.', 'error');
+        notify(
+          res.message || "Login failed. Please check credentials.",
+          "error",
+        );
         return { success: false, message: res.message };
       }
     } finally {
@@ -232,7 +282,7 @@ export const HrmsProvider: React.FC<{
     setStores([]);
     setUsers([]);
     setAttendance([]);
-    notify('You have been signed out securely.', 'info');
+    notify("You have been signed out securely.", "info");
   };
 
   const createStore = async (storeInput: {
@@ -244,9 +294,12 @@ export const HrmsProvider: React.FC<{
     const res = await apiService.createStore(storeInput);
     if (res.success) {
       await refreshData(true);
-      notify(res.message || 'Workplace location created in live database!', 'success');
+      notify(
+        res.message || "Workplace location created in live database!",
+        "success",
+      );
     } else {
-      notify(res.message || 'Failed to create workplace location', 'error');
+      notify(res.message || "Failed to create workplace location", "error");
     }
     return res;
   };
@@ -260,11 +313,12 @@ export const HrmsProvider: React.FC<{
     if (res.success) {
       await refreshData(true);
       notify(
-        res.message || 'Staff member onboarded! Password dispatched to email via Resend.',
-        'success'
+        res.message ||
+          "Staff member onboarded! Password dispatched to email via Resend.",
+        "success",
       );
     } else {
-      notify(res.message || 'Failed to onboard staff member', 'error');
+      notify(res.message || "Failed to onboard staff member", "error");
     }
     return res;
   };
@@ -273,29 +327,38 @@ export const HrmsProvider: React.FC<{
     const res = await apiService.toggleUserValidation(uid);
     if (res.success) {
       await refreshData(true);
-      notify(res.message || 'Account status toggled on live database!', 'success');
+      notify(
+        res.message || "Account status toggled on live database!",
+        "success",
+      );
     } else {
-      notify(res.message || 'Failed to toggle validation', 'error');
+      notify(res.message || "Failed to toggle validation", "error");
     }
     return res;
   };
 
-  const getAttendanceForUser = async (uid: string): Promise<AttendanceRecord[]> => {
+  const getAttendanceForUser = async (
+    uid: string,
+  ): Promise<AttendanceRecord[]> => {
     const res = await apiService.getLiveAttendance(uid);
     if (res.data) {
       const user = users.find((u) => u._id === uid);
-      const store = user ? stores.find((s) => s._id === user.storeId) : undefined;
+      const store = user
+        ? stores.find((s) => s._id === user.storeId)
+        : undefined;
       return res.data.map((log) => ({
         ...log,
         userName: user?.name || log.userName || `Staff (${uid.slice(-6)})`,
-        userEmail: user?.email || log.userEmail || '',
-        storeName: store?.name || log.storeName || 'Assigned Branch',
+        userEmail: user?.email || log.userEmail || "",
+        storeName: store?.name || log.storeName || "Assigned Branch",
       }));
     }
     return [];
   };
 
-  const getAdminAttendance = async (uid?: string): Promise<AttendanceRecord[]> => {
+  const getAdminAttendance = async (
+    uid?: string,
+  ): Promise<AttendanceRecord[]> => {
     const res = await apiService.getAdminAttendance(uid);
     return res.data;
   };
@@ -326,9 +389,12 @@ export const HrmsProvider: React.FC<{
     const res = await apiService.submitAttendance(payload);
     if (res.success) {
       await refreshData(true);
-      notify(res.message || 'Attendance verified and saved successfully!', 'success');
+      notify(
+        res.message || "Attendance verified and saved successfully!",
+        "success",
+      );
     } else {
-      notify(res.message || 'Failed to record attendance', 'error');
+      notify(res.message || "Failed to record attendance", "error");
     }
     return res;
   };
@@ -378,7 +444,7 @@ export const HrmsProvider: React.FC<{
 export const useHrms = () => {
   const context = useContext(HrmsContext);
   if (!context) {
-    throw new Error('useHrms must be used within HrmsProvider');
+    throw new Error("useHrms must be used within HrmsProvider");
   }
   return context;
 };

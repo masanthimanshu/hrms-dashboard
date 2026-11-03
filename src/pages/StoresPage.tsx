@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, type FC, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -19,41 +19,46 @@ import {
   Alert,
   Tooltip,
   CircularProgress,
-} from '@mui/material';
-import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded';
-import AddLocationAltRoundedIcon from '@mui/icons-material/AddLocationAltRounded';
-import MyLocationRoundedIcon from '@mui/icons-material/MyLocationRounded';
-import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
-import PlaceRoundedIcon from '@mui/icons-material/PlaceRounded';
-import RadarRoundedIcon from '@mui/icons-material/RadarRounded';
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
-import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
-import KeyRoundedIcon from '@mui/icons-material/KeyRounded';
-import { useHrms } from '../context/HrmsContext';
-import { Store } from '../types';
+} from "@mui/material";
+import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
+import AddLocationAltRoundedIcon from "@mui/icons-material/AddLocationAltRounded";
+import MyLocationRoundedIcon from "@mui/icons-material/MyLocationRounded";
+import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
+import PlaceRoundedIcon from "@mui/icons-material/PlaceRounded";
+import RadarRoundedIcon from "@mui/icons-material/RadarRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
+import { useHrms } from "../context/HrmsContext";
+import type { Store } from "../types";
 
-export const StoresPage: React.FC = () => {
+export const StoresPage: FC = () => {
   const navigate = useNavigate();
-  const { stores, users, createStore, isLoading, storesError, hasAccountId } = useHrms();
+  const { stores, users, createStore, storesError, hasAccountId } = useHrms();
 
-  const [selectedStore, setSelectedStore] = useState<Store | null>(stores[0] || null);
+  const [selectedStore, setSelectedStore] = useState<Store | null>(
+    stores[0] || null,
+  );
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Sync selectedStore if stores change
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selectedStore && stores.length > 0) {
       setSelectedStore(stores[0]);
-    } else if (selectedStore && !stores.some((s) => s._id === selectedStore._id)) {
+    } else if (
+      selectedStore &&
+      !stores.some((s) => s._id === selectedStore._id)
+    ) {
       setSelectedStore(stores[0] || null);
     }
   }, [stores, selectedStore]);
 
   // New store form state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
   const [detectingGps, setDetectingGps] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -66,7 +71,7 @@ export const StoresPage: React.FC = () => {
 
   const handleDetectLocation = () => {
     if (!navigator.geolocation) {
-      setFormError('Geolocation is not supported by your browser.');
+      setFormError("Geolocation is not supported by your browser.");
       return;
     }
     setDetectingGps(true);
@@ -81,22 +86,24 @@ export const StoresPage: React.FC = () => {
         setFormError(`Unable to retrieve GPS coordinates: ${err.message}`);
         setDetectingGps(false);
       },
-      { timeout: 10000 }
+      { timeout: 10000 },
     );
   };
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setFormError('Please enter a location name');
+      setFormError("Please enter a location name");
       return;
     }
     if (!address.trim()) {
-      setFormError('Please enter the street address');
+      setFormError("Please enter the street address");
       return;
     }
     if (!latitude.trim() || !longitude.trim()) {
-      setFormError('Please provide valid latitude and longitude GPS coordinates');
+      setFormError(
+        "Please provide valid latitude and longitude GPS coordinates",
+      );
       return;
     }
 
@@ -110,29 +117,37 @@ export const StoresPage: React.FC = () => {
         longitude: longitude.trim(),
       });
       if (res.success) {
-        setName('');
-        setAddress('');
-        setLatitude('');
-        setLongitude('');
+        setName("");
+        setAddress("");
+        setLatitude("");
+        setLongitude("");
         setCreateModalOpen(false);
       } else {
-        setFormError(res.message || 'Failed to register location on live backend');
+        setFormError(
+          res.message || "Failed to register location on live backend",
+        );
       }
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Error submitting location');
+      setFormError(
+        err instanceof Error ? err.message : "Error submitting location",
+      );
     } finally {
       setFormSubmitting(false);
     }
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {/* Top Banner or Error Alert */}
       {storesError && (
         <Alert
           severity="error"
           action={
-            <Button color="inherit" size="small" onClick={() => navigate('/settings')}>
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => navigate("/settings")}
+            >
               Settings
             </Button>
           }
@@ -145,18 +160,18 @@ export const StoresPage: React.FC = () => {
       {/* Top Action Bar */}
       <Box
         sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
+          display: "flex",
+          flexDirection: { xs: "column", sm: "row" },
+          justifyContent: "space-between",
+          alignItems: { xs: "flex-start", sm: "center" },
           gap: 2,
         }}
       >
         <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: "#0f172a" }}>
             Workplace Locations & Geofence Perimeters
           </Typography>
-          <Typography variant="body2" sx={{ color: '#64748b' }}>
+          <Typography variant="body2" sx={{ color: "#64748b" }}>
             Physical workplace anchors mapped with precise GPS coordinates.
           </Typography>
         </Box>
@@ -166,7 +181,7 @@ export const StoresPage: React.FC = () => {
           color="primary"
           startIcon={<AddLocationAltRoundedIcon />}
           onClick={() => setCreateModalOpen(true)}
-          sx={{ bgcolor: '#0f172a' }}
+          sx={{ bgcolor: "#0f172a" }}
         >
           Register New Workplace
         </Button>
@@ -179,25 +194,33 @@ export const StoresPage: React.FC = () => {
           sx={{
             p: 6,
             borderRadius: 3,
-            textAlign: 'center',
-            bgcolor: '#ffffff',
+            textAlign: "center",
+            bgcolor: "#ffffff",
           }}
         >
-          <StorefrontRoundedIcon sx={{ fontSize: 48, color: '#94a3b8', mb: 1.5 }} />
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a', mb: 0.5 }}>
+          <StorefrontRoundedIcon
+            sx={{ fontSize: 48, color: "#94a3b8", mb: 1.5 }}
+          />
+          <Typography
+            variant="h6"
+            sx={{ fontWeight: 700, color: "#0f172a", mb: 0.5 }}
+          >
             No Workplace Locations Found
           </Typography>
-          <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 450, mx: 'auto', mb: 2 }}>
+          <Typography
+            variant="body2"
+            sx={{ color: "#64748b", maxWidth: 450, mx: "auto", mb: 2 }}
+          >
             {!hasAccountId
-              ? 'Please configure your ACCOUNT_ID key in secrets to connect to live store records.'
-              : 'Register your first physical branch or office to establish geofencing rules for shift check-ins.'}
+              ? "Please configure your administrative credentials in .env to connect to live store records."
+              : "Register your first physical branch or office to establish geofencing rules for shift check-ins."}
           </Typography>
           {!hasAccountId ? (
             <Button
               variant="contained"
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate("/settings")}
               startIcon={<KeyRoundedIcon />}
-              sx={{ bgcolor: '#0f172a' }}
+              sx={{ bgcolor: "#0f172a" }}
             >
               Configure Account Key
             </Button>
@@ -206,7 +229,7 @@ export const StoresPage: React.FC = () => {
               variant="contained"
               onClick={() => setCreateModalOpen(true)}
               startIcon={<AddLocationAltRoundedIcon />}
-              sx={{ bgcolor: '#0f172a' }}
+              sx={{ bgcolor: "#0f172a" }}
             >
               Register First Store
             </Button>
@@ -215,15 +238,17 @@ export const StoresPage: React.FC = () => {
       ) : (
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', lg: '7fr 5fr' },
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", lg: "7fr 5fr" },
             gap: 2.5,
           }}
         >
           {/* Left Column: Stores List */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {stores.map((store) => {
-              const assignedStaff = users.filter((u) => u.storeId === store._id);
+              const assignedStaff = users.filter(
+                (u) => u.storeId === store._id,
+              );
               const isSelected = selectedStore?._id === store._id;
 
               return (
@@ -233,44 +258,72 @@ export const StoresPage: React.FC = () => {
                   onClick={() => setSelectedStore(store)}
                   sx={{
                     p: 2.5,
-                    cursor: 'pointer',
+                    cursor: "pointer",
                     borderRadius: 2.5,
-                    border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
-                    bgcolor: isSelected ? '#f8fafc' : '#ffffff',
-                    transition: 'all 0.15s ease',
-                    '&:hover': {
-                      borderColor: isSelected ? '#2563eb' : '#cbd5e1',
+                    border: isSelected
+                      ? "2px solid #2563eb"
+                      : "1px solid #e2e8f0",
+                    bgcolor: isSelected ? "#f8fafc" : "#ffffff",
+                    transition: "all 0.15s ease",
+                    "&:hover": {
+                      borderColor: isSelected ? "#2563eb" : "#cbd5e1",
                     },
                   }}
                 >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      mb: 1,
+                    }}
+                  >
+                    <Box
+                      sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
+                    >
                       <Box
                         sx={{
                           p: 1.25,
                           borderRadius: 2,
-                          bgcolor: isSelected ? '#2563eb' : '#f1f5f9',
-                          color: isSelected ? '#ffffff' : '#334155',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          bgcolor: isSelected ? "#2563eb" : "#f1f5f9",
+                          color: isSelected ? "#ffffff" : "#334155",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
                       >
                         <StorefrontRoundedIcon fontSize="small" />
                       </Box>
                       <Box>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                        <Typography
+                          variant="subtitle1"
+                          sx={{ fontWeight: 700, color: "#0f172a" }}
+                        >
                           {store.name}
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.825rem' }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ color: "#64748b", fontSize: "0.825rem" }}
+                        >
                           {store.address}
                         </Typography>
                       </Box>
                     </Box>
 
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <PeopleAltRoundedIcon sx={{ fontSize: 16, color: '#64748b' }} />
-                      <Typography variant="caption" className="tabular-nums" sx={{ fontWeight: 700, color: '#334155' }}>
+                    <Box
+                      sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                    >
+                      <PeopleAltRoundedIcon
+                        sx={{ fontSize: 16, color: "#64748b" }}
+                      />
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 700,
+                          color: "#334155",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
                         {assignedStaff.length} Staff
                       </Typography>
                     </Box>
@@ -280,25 +333,31 @@ export const StoresPage: React.FC = () => {
 
                   <Box
                     sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                       gap: 1.5,
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PlaceRoundedIcon sx={{ fontSize: 16, color: '#2563eb' }} />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <PlaceRoundedIcon
+                        sx={{ fontSize: 16, color: "#2563eb" }}
+                      />
                       <Typography
                         variant="caption"
-                        className="font-mono-numbers"
-                        sx={{ color: '#475569', fontSize: '0.78rem' }}
+                        sx={{
+                          color: "#475569",
+                          fontSize: "0.78rem",
+                          fontFamily: '"JetBrains Mono", monospace',
+                          fontVariantNumeric: "tabular-nums",
+                        }}
                       >
                         LAT {store.latitude} · LNG {store.longitude}
                       </Typography>
                     </Box>
 
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Tooltip title="Copy Store ID">
                         <Button
                           size="small"
@@ -309,14 +368,16 @@ export const StoresPage: React.FC = () => {
                           }}
                           startIcon={
                             copiedId === store._id ? (
-                              <CheckRoundedIcon sx={{ fontSize: 14, color: '#16a34a' }} />
+                              <CheckRoundedIcon
+                                sx={{ fontSize: 14, color: "#16a34a" }}
+                              />
                             ) : (
                               <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
                             )
                           }
-                          sx={{ fontSize: '0.72rem', color: '#64748b', p: 0.5 }}
+                          sx={{ fontSize: "0.72rem", color: "#64748b", p: 0.5 }}
                         >
-                          {copiedId === store._id ? 'Copied' : 'Copy ID'}
+                          {copiedId === store._id ? "Copied" : "Copy ID"}
                         </Button>
                       </Tooltip>
                     </Box>
@@ -333,22 +394,31 @@ export const StoresPage: React.FC = () => {
               sx={{
                 p: 3,
                 borderRadius: 3,
-                display: 'flex',
-                flexDirection: 'column',
+                display: "flex",
+                flexDirection: "column",
                 gap: 2,
-                height: 'fit-content',
+                height: "fit-content",
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
                 <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                  <Typography
+                    variant="subtitle1"
+                    sx={{ fontWeight: 700, color: "#0f172a" }}
+                  >
                     Geofence Anchor: {selectedStore.name}
                   </Typography>
-                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                  <Typography variant="caption" sx={{ color: "#64748b" }}>
                     Visualizing 100m perimeter around GPS coordinates
                   </Typography>
                 </Box>
-                <RadarRoundedIcon sx={{ color: '#2563eb' }} />
+                <RadarRoundedIcon sx={{ color: "#2563eb" }} />
               </Box>
 
               <Divider />
@@ -356,46 +426,46 @@ export const StoresPage: React.FC = () => {
               {/* Radar Coordinate Representation */}
               <Box
                 sx={{
-                  width: '100%',
+                  width: "100%",
                   height: 260,
                   borderRadius: 2,
-                  bgcolor: '#0f172a',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                  border: '1px solid #1e293b',
+                  bgcolor: "#0f172a",
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  border: "1px solid #1e293b",
                 }}
               >
                 {/* Concentric Geofence Rings */}
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     width: 210,
                     height: 210,
-                    borderRadius: '50%',
-                    border: '1px dashed rgba(255,255,255,0.15)',
+                    borderRadius: "50%",
+                    border: "1px dashed rgba(255,255,255,0.15)",
                   }}
                 />
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     width: 150,
                     height: 150,
-                    borderRadius: '50%',
-                    border: '1px solid rgba(59, 130, 246, 0.4)',
-                    bgcolor: 'rgba(59, 130, 246, 0.05)',
+                    borderRadius: "50%",
+                    border: "1px solid rgba(59, 130, 246, 0.4)",
+                    bgcolor: "rgba(59, 130, 246, 0.05)",
                   }}
                 />
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     width: 80,
                     height: 80,
-                    borderRadius: '50%',
-                    border: '1px solid rgba(34, 197, 94, 0.6)',
-                    bgcolor: 'rgba(34, 197, 94, 0.12)',
+                    borderRadius: "50%",
+                    border: "1px solid rgba(34, 197, 94, 0.6)",
+                    bgcolor: "rgba(34, 197, 94, 0.12)",
                   }}
                 />
 
@@ -404,65 +474,109 @@ export const StoresPage: React.FC = () => {
                   sx={{
                     width: 14,
                     height: 14,
-                    borderRadius: '50%',
-                    bgcolor: '#3b82f6',
-                    boxShadow: '0 0 12px #3b82f6',
+                    borderRadius: "50%",
+                    bgcolor: "#3b82f6",
+                    boxShadow: "0 0 12px #3b82f6",
                     zIndex: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                 >
-                  <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: '#ffffff' }} />
+                  <Box
+                    sx={{
+                      width: 4,
+                      height: 4,
+                      borderRadius: "50%",
+                      bgcolor: "#ffffff",
+                    }}
+                  />
                 </Box>
 
                 {/* Legend in Radar */}
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     bottom: 12,
                     left: 12,
-                    display: 'flex',
+                    display: "flex",
                     gap: 1.5,
-                    fontSize: '0.68rem',
-                    color: '#94a3b8',
+                    fontSize: "0.68rem",
+                    color: "#94a3b8",
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#22c55e' }} />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        bgcolor: "#22c55e",
+                      }}
+                    />
                     <span>&lt;100m Geofence</span>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b' }} />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        bgcolor: "#f59e0b",
+                      }}
+                    />
                     <span>&gt;100m Out of Bounds</span>
                   </Box>
                 </Box>
               </Box>
 
               {/* Store Details */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" sx={{ color: '#64748b' }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="body2" sx={{ color: "#64748b" }}>
                     Anchor Latitude:
                   </Typography>
-                  <Typography variant="body2" className="font-mono-numbers" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
+                      color: "#0f172a",
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
                     {selectedStore.latitude}
                   </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" sx={{ color: '#64748b' }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="body2" sx={{ color: "#64748b" }}>
                     Anchor Longitude:
                   </Typography>
-                  <Typography variant="body2" className="font-mono-numbers" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
+                      color: "#0f172a",
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
                     {selectedStore.longitude}
                   </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" sx={{ color: '#64748b' }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="body2" sx={{ color: "#64748b" }}>
                     Assigned Workforce:
                   </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f172a' }}>
-                    {users.filter((u) => u.storeId === selectedStore._id).length} Active Staff
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, color: "#0f172a" }}
+                  >
+                    {
+                      users.filter((u) => u.storeId === selectedStore._id)
+                        .length
+                    }{" "}
+                    Active Staff
                   </Typography>
                 </Box>
               </Box>
@@ -483,14 +597,28 @@ export const StoresPage: React.FC = () => {
           Register Workplace Location
         </DialogTitle>
         <form onSubmit={handleFormSubmit}>
-          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <Alert severity="info" sx={{ bgcolor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
+          <DialogContent
+            sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}
+          >
+            <Alert
+              severity="info"
+              sx={{
+                bgcolor: "#eff6ff",
+                color: "#1e40af",
+                border: "1px solid #bfdbfe",
+              }}
+            >
               <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
                 Live GPS Anchor Point
               </Typography>
-              <Typography variant="caption" sx={{ color: '#1e3a8a', display: 'block' }}>
-                This location is persisted directly into MongoDB via <code>POST /account/store/create</code>.
-                When employees clock in, their GPS coordinates are measured against these exact coordinates.
+              <Typography
+                variant="caption"
+                sx={{ color: "#1e3a8a", display: "block" }}
+              >
+                This location is persisted directly into MongoDB via{" "}
+                <code>POST /account/store/create</code>. When employees clock
+                in, their GPS coordinates are measured against these exact
+                coordinates.
               </Typography>
             </Alert>
 
@@ -514,7 +642,13 @@ export const StoresPage: React.FC = () => {
               required
             />
 
-            <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2,
+                flexDirection: { xs: "column", sm: "row" },
+              }}
+            >
               <TextField
                 label="Latitude"
                 placeholder="e.g. 30.2672"
@@ -533,7 +667,7 @@ export const StoresPage: React.FC = () => {
               />
             </Box>
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
               <Button
                 variant="outlined"
                 size="small"
@@ -546,9 +680,15 @@ export const StoresPage: React.FC = () => {
                     <MyLocationRoundedIcon sx={{ fontSize: 16 }} />
                   )
                 }
-                sx={{ borderColor: '#cbd5e1', color: '#334155', alignSelf: 'flex-start' }}
+                sx={{
+                  borderColor: "#cbd5e1",
+                  color: "#334155",
+                  alignSelf: "flex-start",
+                }}
               >
-                {detectingGps ? 'Reading Device GPS...' : 'Use My Current GPS Position'}
+                {detectingGps
+                  ? "Reading Device GPS..."
+                  : "Use My Current GPS Position"}
               </Button>
             </Box>
           </DialogContent>
@@ -560,9 +700,9 @@ export const StoresPage: React.FC = () => {
               type="submit"
               variant="contained"
               disabled={formSubmitting}
-              sx={{ bgcolor: '#0f172a' }}
+              sx={{ bgcolor: "#0f172a" }}
             >
-              {formSubmitting ? 'Registering...' : 'Save Location'}
+              {formSubmitting ? "Registering..." : "Save Location"}
             </Button>
           </DialogActions>
         </form>

@@ -3,32 +3,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {
+import type {
   Store,
   User,
   AttendanceRecord,
   BackendHealthState,
   AuthUser,
   PresignedUploadResponse,
-  DistanceResponse,
-} from '../types';
+} from "../types";
+import {
+  BASE_URL,
+  CDN_URL,
+  ACCOUNT_ID,
+  hasConfiguredAccountId,
+} from "../config/env";
+
+export const DEFAULT_BASE_URL = BASE_URL;
+export const CDN_BASE_URL = CDN_URL;
+export const S3_BASE_URL = CDN_BASE_URL;
 
 const STORAGE_KEYS = {
-  AUTH_TOKEN: 'hrms_auth_token',
-  REFRESH_TOKEN: 'hrms_refresh_token',
-  AUTH_USER: 'hrms_auth_user',
+  AUTH_TOKEN: "hrms_auth_token",
+  REFRESH_TOKEN: "hrms_refresh_token",
+  AUTH_USER: "hrms_auth_user",
 };
-
-export const DEFAULT_BASE_URL = 'https://hrms.scoobies.ai/app';
-export const CDN_BASE_URL = 'https://d61m0wk4ihaqr.cloudfront.net';
-export const S3_BASE_URL = CDN_BASE_URL;
 
 // Haversine formula to compute great-circle distance in meters between two GPS coordinates
 export function computeHaversineDistance(
   lat1: number,
   lon1: number,
   lat2: number,
-  lon2: number
+  lon2: number,
 ): number {
   const R = 6371e3; // Earth radius in meters
   const φ1 = (lat1 * Math.PI) / 180;
@@ -46,28 +51,32 @@ export function computeHaversineDistance(
 
 // Convert image keys or raw S3 URLs to CloudFront CDN URLs
 export function formatAttendanceImageUrl(imageUrl?: string): string {
-  if (!imageUrl) return '';
-  if (
-    imageUrl.startsWith('data:') ||
-    imageUrl.startsWith('blob:')
-  ) {
+  if (!imageUrl) return "";
+  if (imageUrl.startsWith("data:") || imageUrl.startsWith("blob:")) {
     return imageUrl;
   }
-  // If imageUrl is already a full S3 URL, route through CloudFront CDN
-  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-    if (imageUrl.includes('hrms-attendance-bucket.s3.ap-south-1.amazonaws.com')) {
-      return imageUrl.replace('https://hrms-attendance-bucket.s3.ap-south-1.amazonaws.com', CDN_BASE_URL);
+  const cdn = CDN_URL || CDN_BASE_URL;
+  if (!cdn) {
+    return imageUrl;
+  }
+  // If imageUrl is already a full S3 or HTTP URL, route through configured CDN URL
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    if (imageUrl.includes(".amazonaws.com/")) {
+      const pathAfterBucket = imageUrl.split(".amazonaws.com/")[1];
+      if (pathAfterBucket) {
+        return `${cdn}/${pathAfterBucket.replace(/^\/+/, "")}`;
+      }
     }
     return imageUrl;
   }
   // Remove leading slash if any
-  const cleanKey = imageUrl.replace(/^\/+/, '');
-  return `${CDN_BASE_URL}/${cleanKey}`;
+  const cleanKey = imageUrl.replace(/^\/+/, "");
+  return `${cdn}/${cleanKey}`;
 }
 
 class HrmsApiService {
-  private authToken: string = '';
-  private refreshToken: string = '';
+  private authToken: string = "";
+  private refreshToken: string = "";
   private currentUser: AuthUser | null = null;
 
   constructor() {
@@ -76,10 +85,10 @@ class HrmsApiService {
 
   public loadFromStorage() {
     const savedAuth = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-    if (savedAuth) this.authToken = savedAuth;
+    if (savedAuth) this.authToken = savedAuth.replace(/^Bearer\s+/i, "").trim();
 
     const savedRefresh = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    if (savedRefresh) this.refreshToken = savedRefresh;
+    if (savedRefresh) this.refreshToken = savedRefresh.replace(/^Bearer\s+/i, "").trim();
 
     const savedUser = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
     if (savedUser) {
@@ -108,17 +117,19 @@ class HrmsApiService {
   }
 
   public setSession(auth: string, refresh: string, user: AuthUser) {
-    this.authToken = auth;
-    this.refreshToken = refresh;
+    const cleanAuth = auth.replace(/^Bearer\s+/i, "").trim();
+    const cleanRefresh = refresh.replace(/^Bearer\s+/i, "").trim();
+    this.authToken = cleanAuth;
+    this.refreshToken = cleanRefresh;
     this.currentUser = user;
-    localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, auth);
-    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refresh);
+    localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, cleanAuth);
+    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, cleanRefresh);
     localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(user));
   }
 
   public clearSession() {
-    this.authToken = '';
-    this.refreshToken = '';
+    this.authToken = "";
+    this.refreshToken = "";
     this.currentUser = null;
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
@@ -126,43 +137,93 @@ class HrmsApiService {
   }
 
   // 1. AUTHENTICATION: LOGIN
-  // Supports both Admin Login (/account/admin/login) and Employee Login (/account/auth/login)
+  // - Admin Login: POST /account/admin/login strictly requires { "user", "pass" }
+  // - Employee Login: POST /account/auth/login strictly requires { "email", "password" }
+  // Strict Zod validation on backend rejects any extra keys with 'unrecognized_keys'
   public async login(
     userOrEmail: string,
-    pass: string
+    pass: string,
   ): Promise<{ success: boolean; user?: AuthUser; message?: string }> {
+    const trimmedInput = userOrEmail.trim();
+
     try {
-      const res = await fetch('/api/hrms/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      // Step A: Attempt Admin Login (/account/admin/login)
+      const adminUrl = this.getEndpoint(
+        "/account/admin/login",
+        "/api/hrms/login",
+      );
+      const adminRes = await fetch(adminUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.getAuthHeaders(),
+        },
         body: JSON.stringify({
-          user: userOrEmail,
-          email: userOrEmail,
+          user: trimmedInput,
           pass,
+        }),
+      });
+
+      const adminData = await adminRes.json().catch(() => ({}));
+
+      if (adminRes.ok && (adminData.authToken || adminData.token)) {
+        const token = adminData.authToken || adminData.token;
+        const refreshToken = adminData.refreshToken || "";
+        const user: AuthUser = adminData.user || {
+          name: adminData.name || "Scoobies Admin",
+          email: trimmedInput,
+          role: "ADMIN",
+        };
+        this.setSession(token, refreshToken, user);
+        return { success: true, user, message: "Logged in as Admin successfully!" };
+      }
+
+      // Step B: Attempt Employee Login (/account/auth/login)
+      const employeeUrl = this.getEndpoint(
+        "/account/auth/login",
+        "/api/hrms/auth/login",
+      );
+      const empRes = await fetch(employeeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          email: trimmedInput,
           password: pass,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const empData = await empRes.json().catch(() => ({}));
 
-      if (res.ok && data.authToken) {
-        const user: AuthUser = data.user || {
-          name: 'Scoobies Admin',
-          email: userOrEmail,
-          role: 'ADMIN',
+      if (empRes.ok && (empData.authToken || empData.token)) {
+        const token = empData.authToken || empData.token;
+        const refreshToken = empData.refreshToken || "";
+        const user: AuthUser = empData.user || {
+          name: empData.name || "Employee",
+          email: trimmedInput,
+          role: "STAFF",
         };
-        this.setSession(data.authToken, data.refreshToken || '', user);
-        return { success: true, user, message: 'Logged in successfully' };
+        this.setSession(token, refreshToken, user);
+        return { success: true, user, message: "Logged in successfully!" };
       }
+
+      // Extract clear message from Zod validation or backend errors
+      const errorMsg =
+        this.extractErrorMessage(adminData) ||
+        this.extractErrorMessage(empData) ||
+        "Invalid email or password credentials.";
 
       return {
         success: false,
-        message: data.message || data.error || 'Invalid credentials.',
+        message: errorMsg,
       };
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Network failure during login',
+        message:
+          err instanceof Error ? err.message : "Network failure during login",
       };
     }
   }
@@ -172,11 +233,10 @@ class HrmsApiService {
     if (!this.authToken) return false;
 
     try {
-      const res = await fetch('/api/hrms/verify', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.authToken}`,
-        },
+      const url = this.getEndpoint("/secure/verify", "/api/hrms/verify");
+      const res = await fetch(url, {
+        method: "GET",
+        headers: this.getAuthHeaders(),
       });
 
       if (res.ok) {
@@ -185,7 +245,7 @@ class HrmsApiService {
           this.currentUser = { ...this.currentUser, ...data.user };
           localStorage.setItem(
             STORAGE_KEYS.AUTH_USER,
-            JSON.stringify(this.currentUser)
+            JSON.stringify(this.currentUser),
           );
         }
         return true;
@@ -203,20 +263,28 @@ class HrmsApiService {
     }
   }
 
-  // 3. AUTHENTICATION: REFRESH
+  // 3. AUTHENTICATION: REFRESH (GET /jwt/refresh)
   public async refreshTokens(): Promise<boolean> {
     if (!this.refreshToken) return false;
 
     try {
-      const res = await fetch('/api/hrms/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.authToken}`,
-          Refresh: this.refreshToken,
-        },
-        body: JSON.stringify({ refreshToken: this.refreshToken }),
+      const url = this.getEndpoint("/jwt/refresh", "/api/hrms/refresh");
+      let res = await fetch(url, {
+        method: "GET",
+        headers: this.getAuthHeaders(),
       });
+
+      // Fallback to POST if GET is unsupported by the proxy/server
+      if (res.status === 404 || res.status === 405) {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...this.getAuthHeaders(),
+          },
+          body: JSON.stringify({ refreshToken: this.refreshToken }),
+        });
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -238,10 +306,16 @@ class HrmsApiService {
     }
   }
 
-  // Diagnostic health check
+  // Diagnostic health check (GET /health - no custom headers required per spec)
   public async testHealth(): Promise<BackendHealthState> {
     try {
-      const res = await fetch('/api/hrms/status');
+      const url = this.getEndpoint("/health", "/api/hrms/status");
+      // Public health check doesn't require custom headers, preventing CORS preflight rejection
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+
       if (!res.ok) {
         return {
           rootHealth: false,
@@ -254,13 +328,13 @@ class HrmsApiService {
         };
       }
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       return {
-        rootHealth: json.backendOnline ?? false,
-        storeHealth: json.storeHealth ?? false,
-        authHealth: json.authHealth ?? false,
-        adminHealth: json.adminHealth ?? false,
-        jwtHealth: json.jwtHealth ?? false,
+        rootHealth: true,
+        storeHealth: json.storeHealth ?? hasConfiguredAccountId,
+        authHealth: json.authHealth ?? true,
+        adminHealth: json.adminHealth ?? true,
+        jwtHealth: json.jwtHealth ?? true,
         lastChecked: new Date().toISOString(),
       };
     } catch (err) {
@@ -271,28 +345,115 @@ class HrmsApiService {
         adminHealth: false,
         jwtHealth: false,
         lastChecked: new Date().toISOString(),
-        errorMessage: err instanceof Error ? err.message : 'Connection failed',
+        errorMessage: err instanceof Error ? err.message : "Connection failed",
       };
     }
   }
 
+  // Helper to extract readable error message from backend or Zod responses
+  private extractErrorMessage(data: any): string | null {
+    if (!data) return null;
+    if (typeof data === "string") return data;
+    if (Array.isArray(data) && data.length > 0) {
+      return data
+        .map((d: any) => d.message || d.error || (typeof d === "string" ? d : JSON.stringify(d)))
+        .join("; ");
+    }
+    if (data.message) {
+      if (typeof data.message === "string") return data.message;
+      if (Array.isArray(data.message)) {
+        return data.message
+          .map((d: any) => d.message || d.error || (typeof d === "string" ? d : JSON.stringify(d)))
+          .join("; ");
+      }
+    }
+    if (data.error) {
+      if (typeof data.error === "string") return data.error;
+      if (Array.isArray(data.error)) {
+        return data.error
+          .map((d: any) => d.message || d.error || (typeof d === "string" ? d : JSON.stringify(d)))
+          .join("; ");
+      }
+      if (typeof data.error === "object") {
+        return JSON.stringify(data.error);
+      }
+    }
+    if (data.status && typeof data.status === "string" && data.status !== "Success") {
+      return data.status;
+    }
+    return null;
+  }
+
+  // Helper for endpoint resolution (direct backend or proxy fallback)
+  private getEndpoint(path: string, proxyFallback: string): string {
+    if (BASE_URL) {
+      return `${BASE_URL}${path}`;
+    }
+    return proxyFallback;
+  }
+
   // Helper for authenticated headers
-  private getAuthHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { Accept: 'application/json' };
+  // The HRMS backend Tokens.decodeAuth() expects strictly the raw JWT string without "Bearer "
+  // and without duplicate casing keys (which would cause fetch() to comma-join values into malformed JWTs).
+  public getAuthHeaders(includeBearer = false): Record<string, string> {
+    const headers: Record<string, string> = { Accept: "application/json" };
     if (this.authToken) {
-      headers.Authorization = `Bearer ${this.authToken}`;
+      const cleanToken = this.authToken.replace(/^Bearer\s+/i, "").trim();
+      const tokenVal = includeBearer ? `Bearer ${cleanToken}` : cleanToken;
+      headers.authorization = tokenVal;
     }
     if (this.refreshToken) {
-      headers.Refresh = this.refreshToken;
+      headers.refresh = this.refreshToken.replace(/^Bearer\s+/i, "").trim();
+    }
+    if (ACCOUNT_ID) {
+      headers.account = ACCOUNT_ID.trim();
     }
     return headers;
   }
 
+  // Resilient fetch helper: tries raw token first (matching Tokens.decodeAuth spec),
+  // and retries with Bearer prefix if 401 Unauthorized is returned.
+  public async fetchWithAuth(
+    url: string,
+    options: RequestInit = {},
+  ): Promise<Response> {
+    const rawHeaders = this.getAuthHeaders(false);
+    let res = await fetch(url, {
+      ...options,
+      headers: {
+        ...rawHeaders,
+        ...(options.headers || {}),
+      },
+    });
+
+    // If 401 Unauthorized, retry with Bearer token format
+    if (res.status === 401 && this.authToken) {
+      const bearerHeaders = this.getAuthHeaders(true);
+      const retryRes = await fetch(url, {
+        ...options,
+        headers: {
+          ...bearerHeaders,
+          ...(options.headers || {}),
+        },
+      });
+      if (retryRes.ok) {
+        res = retryRes;
+      }
+    }
+
+    return res;
+  }
+
   // LIVE STORES API (GET /account/store/get)
-  public async getStores(): Promise<{ data: Store[]; error?: string; status?: number }> {
+  public async getStores(): Promise<{
+    data: Store[];
+    error?: string;
+    status?: number;
+  }> {
     try {
-      const res = await fetch('/api/hrms/stores', {
-        method: 'GET',
+      const url = this.getEndpoint("/account/store/get", "/api/hrms/stores");
+      const res = await fetch(url, {
+        method: "GET",
         headers: this.getAuthHeaders(),
       });
 
@@ -302,7 +463,8 @@ class HrmsApiService {
         return {
           data: [],
           status: res.status,
-          error: json.message || `Failed to fetch live stores (HTTP ${res.status})`,
+          error:
+            json.message || `Failed to fetch live stores (HTTP ${res.status})`,
         };
       }
 
@@ -316,7 +478,7 @@ class HrmsApiService {
         error:
           err instanceof Error
             ? `Network error: ${err.message}`
-            : 'Unable to connect to live backend',
+            : "Unable to connect to live backend",
       };
     }
   }
@@ -329,49 +491,66 @@ class HrmsApiService {
     longitude: string;
   }): Promise<{ success: boolean; store?: Store; message?: string }> {
     try {
-      const res = await fetch('/api/hrms/stores', {
-        method: 'POST',
+      const url = this.getEndpoint("/account/store/create", "/api/hrms/stores");
+      // Zod schema strictly requires ONLY name, address, latitude, longitude
+      const res = await fetch(url, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(storeInput),
+        body: JSON.stringify({
+          name: storeInput.name.trim(),
+          address: storeInput.address.trim(),
+          latitude: String(storeInput.latitude).trim(),
+          longitude: String(storeInput.longitude).trim(),
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        const newStore: Store =
-          data.store || data.data || {
-            _id: data._id || 'store_' + Date.now(),
-            ...storeInput,
+        const newStore: Store = data.store ||
+          data.data || {
+            _id: data._id || "store_" + Date.now(),
+            name: storeInput.name.trim(),
+            address: storeInput.address.trim(),
+            latitude: String(storeInput.latitude).trim(),
+            longitude: String(storeInput.longitude).trim(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
         return {
           success: true,
           store: newStore,
-          message: 'Workplace location created in live database!',
+          message: "Workplace location created in live database!",
         };
       } else {
         return {
           success: false,
-          message: data.message || `Failed to create store (HTTP ${res.status})`,
+          message:
+            this.extractErrorMessage(data) ||
+            `Failed to create store (HTTP ${res.status})`,
         };
       }
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Failed to reach API',
+        message: err instanceof Error ? err.message : "Failed to reach API",
       };
     }
   }
 
   // LIVE EMPLOYEES API (GET /account/auth/users)
-  public async getUsers(): Promise<{ data: User[]; error?: string; status?: number }> {
+  public async getUsers(): Promise<{
+    data: User[];
+    error?: string;
+    status?: number;
+  }> {
     try {
-      const res = await fetch('/api/hrms/users', {
-        method: 'GET',
+      const url = this.getEndpoint("/account/auth/users", "/api/hrms/users");
+      const res = await fetch(url, {
+        method: "GET",
         headers: this.getAuthHeaders(),
       });
 
@@ -381,7 +560,8 @@ class HrmsApiService {
         return {
           data: [],
           status: res.status,
-          error: json.message || `Failed to fetch live staff (HTTP ${res.status})`,
+          error:
+            json.message || `Failed to fetch live staff (HTTP ${res.status})`,
         };
       }
 
@@ -395,7 +575,7 @@ class HrmsApiService {
         error:
           err instanceof Error
             ? `Network error: ${err.message}`
-            : 'Unable to connect to live backend',
+            : "Unable to connect to live backend",
       };
     }
   }
@@ -407,23 +587,29 @@ class HrmsApiService {
     storeId: string;
   }): Promise<{ success: boolean; user?: User; message?: string }> {
     try {
-      const res = await fetch('/api/hrms/users', {
-        method: 'POST',
+      const url = this.getEndpoint("/account/auth/create", "/api/hrms/users");
+      // Zod schema strictly requires ONLY { name, email, storeId }
+      const res = await fetch(url, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(userInput),
+        body: JSON.stringify({
+          name: userInput.name.trim(),
+          email: userInput.email.trim(),
+          storeId: userInput.storeId,
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        const newUser: User =
-          data.user || data.data || {
-            _id: data._id || 'user_' + Date.now(),
-            name: userInput.name,
-            email: userInput.email,
+        const newUser: User = data.user ||
+          data.data || {
+            _id: data._id || "user_" + Date.now(),
+            name: userInput.name.trim(),
+            email: userInput.email.trim(),
             storeId: userInput.storeId,
             isValid: false,
             createdAt: new Date().toISOString(),
@@ -433,29 +619,35 @@ class HrmsApiService {
           success: true,
           user: newUser,
           message:
-            'Employee onboarded! A secure random password was dispatched to their email via Resend.',
+            "Employee onboarded! A secure random password was dispatched to their email via Resend.",
         };
       } else {
         return {
           success: false,
-          message: data.message || `Failed to onboard employee (HTTP ${res.status})`,
+          message:
+            this.extractErrorMessage(data) ||
+            `Failed to onboard employee (HTTP ${res.status})`,
         };
       }
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Connection error',
+        message: err instanceof Error ? err.message : "Connection error",
       };
     }
   }
 
   // LIVE TOGGLE ACCOUNT ACTIVATION (POST /account/auth/validate/:uid)
   public async toggleUserValidation(
-    uid: string
+    uid: string,
   ): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch(`/api/hrms/users/validate/${uid}`, {
-        method: 'POST',
+      const url = this.getEndpoint(
+        `/account/auth/validate/${uid}`,
+        `/api/hrms/users/validate/${uid}`,
+      );
+      const res = await fetch(url, {
+        method: "POST",
         headers: this.getAuthHeaders(),
       });
 
@@ -464,76 +656,121 @@ class HrmsApiService {
       if (res.ok) {
         return {
           success: true,
-          message: data.message || 'Account status updated on live database.',
+          message: data.message || "Account status updated on live database.",
         };
       } else {
         return {
           success: false,
-          message: data.message || `Validation toggle failed (HTTP ${res.status})`,
+          message:
+            data.message || `Validation toggle failed (HTTP ${res.status})`,
         };
       }
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Network error',
+        message: err instanceof Error ? err.message : "Network error",
       };
     }
   }
 
-  // ADMIN ATTENDANCE (GET /admin/attendance & /account/admin/attendance)
+  // ADMIN ATTENDANCE (GET /account/admin/attendance & /account/admin/attendance/:uid)
   public async getAdminAttendance(
-    uid?: string
-  ): Promise<{ data: AttendanceRecord[]; error?: string }> {
+    uid?: string,
+  ): Promise<{ data: AttendanceRecord[]; error?: string; status?: number }> {
     try {
-      // First try /api/hrms/admin/attendance
-      const url = uid
-        ? `/api/hrms/admin/attendance?uid=${uid}`
-        : '/api/hrms/admin/attendance';
+      // Per API spec: GET /account/admin/attendance/:uid for single user, or /account/admin/attendance for all
+      const path = uid
+        ? `/account/admin/attendance/${uid}`
+        : "/account/admin/attendance";
+      const proxyFallback = uid
+        ? `/api/hrms/admin/attendance/${uid}`
+        : "/api/hrms/admin/attendance";
+      const url = this.getEndpoint(path, proxyFallback);
 
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      });
+      let res = await this.fetchWithAuth(url, { method: "GET" });
+
+      // If /account/admin/attendance failed with 404 or 500, fallback to /secure/attendance/all
+      if (!res.ok && (res.status === 404 || res.status === 500)) {
+        const securePath = uid
+          ? `/secure/attendance/user/${uid}`
+          : "/secure/attendance/all";
+        const fallbackUrl = this.getEndpoint(
+          securePath,
+          `/api/hrms${securePath}`,
+        );
+        const altRes = await this.fetchWithAuth(fallbackUrl, { method: "GET" });
+        if (altRes.ok) {
+          res = altRes;
+        } else if (res.status === 404 && altRes.status !== 404) {
+          res = altRes;
+        }
+      }
+
+      // If still not ok and status is 404/500, try /secure/attendance/today
+      if (!res.ok && (res.status === 404 || res.status === 500)) {
+        const todayUrl = this.getEndpoint(
+          "/secure/attendance/today",
+          "/api/hrms/secure/attendance/today",
+        );
+        const todayRes = await this.fetchWithAuth(todayUrl, { method: "GET" });
+        if (todayRes.ok) {
+          res = todayRes;
+        }
+      }
+
+      const text = await res.text().catch(() => "");
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
 
       if (res.ok) {
-        const json = await res.json();
-        const logs: AttendanceRecord[] = Array.isArray(json)
-          ? json
-          : json.data || json.attendance || [];
-        return { data: logs };
+        let logs: AttendanceRecord[] = [];
+        if (Array.isArray(json)) {
+          logs = json;
+        } else if (json && typeof json === "object") {
+          logs = json.data || json.attendance || json.records || [];
+        }
+        return { data: logs, status: res.status };
       }
 
-      // Fallback try direct /admin/attendance endpoint
-      const altUrl = uid ? `/admin/attendance?uid=${uid}` : '/admin/attendance';
-      const altRes = await fetch(altUrl, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
+      // Format error from JSON or response text
+      const extracted = json ? this.extractErrorMessage(json) : null;
+      const cleanText = text
+        ? text.replace(/<[^>]*>/g, "").trim().slice(0, 200)
+        : "";
+      const errorMsg =
+        extracted ||
+        (cleanText && !cleanText.startsWith("<!DOCTYPE") ? cleanText : null) ||
+        `Failed to fetch attendance logs (HTTP ${res.status})`;
+
+      console.error("[HRMS Attendance API Error]", {
+        url,
+        status: res.status,
+        response: json || text,
       });
 
-      if (altRes.ok) {
-        const json = await altRes.json();
-        const logs: AttendanceRecord[] = Array.isArray(json)
-          ? json
-          : json.data || json.attendance || [];
-        return { data: logs };
-      }
-
-      const errJson = await res.json().catch(() => ({}));
       return {
         data: [],
-        error: errJson.message || `Failed to fetch attendance logs (HTTP ${res.status})`,
+        status: res.status,
+        error: errorMsg,
       };
     } catch (err) {
       return {
         data: [],
-        error: err instanceof Error ? err.message : 'Network error retrieving attendance',
+        error:
+          err instanceof Error
+            ? err.message
+            : "Network error retrieving attendance",
       };
     }
   }
 
   // Alias for backward compatibility
   public async getLiveAttendance(
-    uid?: string
+    uid?: string,
   ): Promise<{ data: AttendanceRecord[]; error?: string }> {
     return this.getAdminAttendance(uid);
   }
@@ -541,37 +778,59 @@ class HrmsApiService {
   // USER DISTANCE SERVICE (POST /secure/user/distance)
   public async calculateDistance(
     latitude: string,
-    longitude: string
+    longitude: string,
   ): Promise<{ distance?: number; error?: string }> {
     try {
-      const res = await fetch('/api/hrms/secure/distance', {
-        method: 'POST',
+      const url = this.getEndpoint(
+        "/secure/user/distance",
+        "/api/hrms/secure/distance",
+      );
+      // Zod schema strictly requires ONLY { latitude, longitude }
+      const res = await fetch(url, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify({ latitude, longitude }),
+        body: JSON.stringify({
+          latitude: String(latitude).trim(),
+          longitude: String(longitude).trim(),
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
-      if (res.ok && typeof data.distance === 'number') {
+      if (res.ok && typeof data.distance === "number") {
         return { distance: data.distance };
       }
-      return { error: data.message || 'Could not calculate distance' };
+      return {
+        error:
+          this.extractErrorMessage(data) ||
+          "Could not calculate distance",
+      };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : 'Distance check failed' };
+      return {
+        error: err instanceof Error ? err.message : "Distance check failed",
+      };
     }
   }
 
   // PRESIGNED S3 UPLOAD (POST /secure/upload/image)
   public async requestPresignedUpload(
-    textDescription: string = 'Shift Verification Photo'
-  ): Promise<{ success: boolean; data?: PresignedUploadResponse; message?: string }> {
+    textDescription: string = "Shift Verification Photo",
+  ): Promise<{
+    success: boolean;
+    data?: PresignedUploadResponse;
+    message?: string;
+  }> {
     try {
-      const res = await fetch('/api/hrms/secure/upload', {
-        method: 'POST',
+      const url = this.getEndpoint(
+        "/secure/upload/image",
+        "/api/hrms/secure/upload",
+      );
+      const res = await fetch(url, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.getAuthHeaders(),
         },
         body: JSON.stringify({ text: textDescription }),
@@ -590,12 +849,12 @@ class HrmsApiService {
 
       return {
         success: false,
-        message: json.message || 'Failed to generate S3 presigned URL',
+        message: json.message || "Failed to generate S3 presigned URL",
       };
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Presigned upload failed',
+        message: err instanceof Error ? err.message : "Presigned upload failed",
       };
     }
   }
@@ -603,13 +862,13 @@ class HrmsApiService {
   // DIRECT S3 BINARY UPLOAD (PUT uploadUrl with Content-Type: image/webp)
   public async uploadBinaryToS3(
     uploadUrl: string,
-    imageBlob: Blob
+    imageBlob: Blob,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const res = await fetch(uploadUrl, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'image/webp',
+          "Content-Type": "image/webp",
         },
         body: imageBlob,
       });
@@ -617,11 +876,17 @@ class HrmsApiService {
       if (res.ok) {
         return { success: true };
       }
-      return { success: false, error: `S3 upload failed with status ${res.status}` };
+      return {
+        success: false,
+        error: `S3 upload failed with status ${res.status}`,
+      };
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Direct S3 upload network failure',
+        error:
+          err instanceof Error
+            ? err.message
+            : "Direct S3 upload network failure",
       };
     }
   }
@@ -639,39 +904,58 @@ class HrmsApiService {
     distance?: string | number;
   }): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch('/api/hrms/secure/attendance', {
-        method: 'POST',
+      const url = this.getEndpoint(
+        "/secure/attendance/add",
+        "/api/hrms/secure/attendance",
+      );
+      // Zod schema strictly requires ONLY { latitude, longitude, imageUrl }
+      const res = await fetch(url, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          latitude: String(payload.latitude).trim(),
+          longitude: String(payload.longitude).trim(),
+          imageUrl: payload.imageUrl,
+        }),
       });
 
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
         return {
           success: true,
-          message: json.status || 'Attendance recorded successfully!',
+          message: json.status || "Attendance recorded successfully!",
         };
       }
       return {
         success: false,
-        message: json.error || json.message || 'Failed to submit attendance',
+        message:
+          this.extractErrorMessage(json) ||
+          "Failed to submit attendance",
       };
     } catch (err) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Attendance submission error',
+        message:
+          err instanceof Error ? err.message : "Attendance submission error",
       };
     }
   }
 
   // ATTENDANCE TODAY (GET /secure/attendance/today)
-  public async getTodayAttendance(): Promise<{ data: AttendanceRecord[]; error?: string }> {
+  public async getTodayAttendance(): Promise<{
+    data: AttendanceRecord[];
+    error?: string;
+  }> {
     try {
-      const res = await fetch('/api/hrms/secure/attendance/today', {
-        method: 'GET',
+      const url = this.getEndpoint(
+        "/secure/attendance/today",
+        "/api/hrms/secure/attendance/today",
+      );
+      const res = await fetch(url, {
+        method: "GET",
         headers: this.getAuthHeaders(),
       });
 

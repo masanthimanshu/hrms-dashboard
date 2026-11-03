@@ -3,35 +3,35 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, CssBaseline, Snackbar, Alert } from '@mui/material';
-import { theme } from './theme';
-import { HrmsProvider } from './context/HrmsContext';
-import { Layout } from './components/Layout';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { LoginPage } from './pages/LoginPage';
-import { OverviewPage } from './pages/OverviewPage';
-import { EmployeesPage } from './pages/EmployeesPage';
-import { StoresPage } from './pages/StoresPage';
-import { AttendancePage } from './pages/AttendancePage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ThemeProvider, CssBaseline, Snackbar, Alert } from "@mui/material";
+import { theme } from "./theme";
+import { HrmsProvider } from "./context/HrmsContext";
+import { Layout } from "./components/Layout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { LoginPage } from "./pages/LoginPage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { EmployeesPage } from "./pages/EmployeesPage";
+import { StoresPage } from "./pages/StoresPage";
+import { AttendancePage } from "./pages/AttendancePage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
-    severity: 'success' | 'info' | 'warning' | 'error';
+    severity: "success" | "info" | "warning" | "error";
   }>({
     open: false,
-    message: '',
-    severity: 'info',
+    message: "",
+    severity: "info",
   });
 
   const showNotification = (
     message: string,
-    severity: 'success' | 'info' | 'warning' | 'error' = 'success'
+    severity: "success" | "info" | "warning" | "error" = "success",
   ) => {
     setSnackbar({ open: true, message, severity });
   };
@@ -70,13 +70,13 @@ export default function App() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
         <Alert
           onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
           severity={snackbar.severity}
           variant="filled"
-          sx={{ width: '100%', borderRadius: 2 }}
+          sx={{ width: "100%", borderRadius: 2 }}
         >
           {snackbar.message}
         </Alert>
