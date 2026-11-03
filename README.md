@@ -1,7 +1,7 @@
 # Scoobies HRMS Dashboard
 
 [![React](https://img.shields.io/badge/React-19-blue.svg?logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8-646CFF.svg?logo=vite)](https://vite.dev/)
 [![Material UI](https://img.shields.io/badge/MUI-v9-007FFF.svg?logo=mui)](https://mui.com/)
 [![Code Quality](https://img.shields.io/badge/Linter-oxlint-orange.svg)](https://oxc.rs/)
@@ -29,6 +29,7 @@ A modern, responsive administrative web application designed for enterprise work
 - [Available Scripts](#available-scripts)
 - [Where to Get Help](#where-to-get-help)
 - [Maintainers & Contributing](#maintainers--contributing)
+- [License](#license)
 
 ---
 
@@ -50,7 +51,7 @@ Distributed retail chains, field organizations, and multi-location businesses of
 ### Key Features
 
 - **Executive Overview Dashboard**: High-level KPI cards displaying active workforce numbers, operational branches, daily attendance compliance percentages, and real-time punch-in activity streams.
-- **Geofence Verification & Distance Tracking**: Measures exact employee distance (in meters) relative to the assigned store coordinates at the time of check-in, classifying punches as **Compliant** ($\le 100\text{ m}$), **Borderline** ($101\text{--}250\text{ m}$), or **Outlier** ($> 250\text{ m}$).
+- **Geofence Verification & Distance Tracking**: Measures exact employee distance (in meters) relative to the assigned store coordinates at the time of check-in, classifying punches as **Compliant** (≤ 100 m), **Borderline** (101–250 m), or **Outlier** (> 250 m).
 - **Visual Photo Verification**: Built-in modal viewer for inspecting CloudFront CDN-hosted employee verification photos taken during punch-in alongside geo-coordinates and timestamps.
 - **Staff Directory & Access Control**: Full employee roster with quick search, store filtering, account validation toggles, and single-click CSV export.
 - **Workplace Branch Management**: Store creation with manual coordinate entry or device geolocation auto-detection (`Use My Current Location`), address management, and assigned staff counts.
